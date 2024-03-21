@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 	"net"
@@ -52,6 +53,7 @@ func (s *nonBlockingGRPCServer) serve(endpoint string, ids csi.IdentityServer, c
 	}
 	if cs != nil {
 		csi.RegisterControllerServer(server, cs)
+		rpc.RegisterModifyServer(server, cs)
 	}
 	if ns != nil {
 		csi.RegisterNodeServer(server, ns)
