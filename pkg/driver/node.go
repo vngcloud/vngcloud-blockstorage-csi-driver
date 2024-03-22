@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 	corev1 "k8s.io/api/core/v1"
@@ -154,6 +155,40 @@ func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
 	}
 	klog.InfoS("Removed taint(s) from local node", "node", nodeName)
 	return nil
+}
+
+func (s *nodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
+	return &csi.NodeStageVolumeResponse{}, nil
+}
+
+func (s *nodeService) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
+	return &csi.NodeUnstageVolumeResponse{}, nil
+}
+
+func (s *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+	return &csi.NodePublishVolumeResponse{}, nil
+}
+
+func (s *nodeService) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+	return &csi.NodeUnpublishVolumeResponse{}, nil
+}
+
+func (s *nodeService) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+
+	return &csi.NodeGetVolumeStatsResponse{}, nil
+}
+
+func (s *nodeService) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+
+	return &csi.NodeExpandVolumeResponse{}, nil
+}
+
+func (s *nodeService) NodeGetCapabilities(_ context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
+	return &csi.NodeGetCapabilitiesResponse{}, nil
+}
+
+func (s *nodeService) NodeGetInfo(_ context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+	return &csi.NodeGetInfoResponse{}, nil
 }
 
 func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {

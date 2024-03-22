@@ -9,6 +9,7 @@ import (
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/csi/vcontainer/vcontainer"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	obj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,6 +48,8 @@ type controllerService struct {
 	inFlight            *internal.InFlight
 	modifyVolumeManager *modifyVolumeManager
 	driverOptions       *DriverOptions
+
+	rpc.UnimplementedModifyServer
 }
 
 // newControllerService creates a new controller service
@@ -424,6 +427,36 @@ func (d *controllerService) ControllerModifyVolume(ctx context.Context, req *csi
 	return &csi.ControllerModifyVolumeResponse{}, nil
 }
 
+func (d *controllerService) GetCSIDriverModificationCapability(
+	_ context.Context,
+	_ *rpc.GetCSIDriverModificationCapabilityRequest,
+) (*rpc.GetCSIDriverModificationCapabilityResponse, error) {
+	return &rpc.GetCSIDriverModificationCapabilityResponse{}, nil
+}
+
+func (d *controllerService) ModifyVolumeProperties(
+	ctx context.Context,
+	req *rpc.ModifyVolumePropertiesRequest,
+) (*rpc.ModifyVolumePropertiesResponse, error) {
+	klog.V(4).InfoS("ModifyVolumeProperties called", "req", req)
+	if err := validateModifyVolumePropertiesRequest(req); err != nil {
+		return nil, err
+	}
+
+	options, err := parseModifyVolumeParameters(req.GetParameters())
+	if err != nil {
+		return nil, err
+	}
+
+	name := req.GetName()
+	err = d.modifyVolumeWithCoalescing(ctx, name, options)
+	if err != nil {
+		return nil, err
+	}
+
+	return &rpc.ModifyVolumePropertiesResponse{}, nil
+}
+
 func getCreateVolumeResponse(vol *obj.Volume) *csi.CreateVolumeResponse {
 	var volsrc *csi.VolumeContentSource
 	resp := &csi.CreateVolumeResponse{
@@ -462,6 +495,14 @@ func isAttachment(vmId *string) bool {
 		return false
 	}
 	return true
+}
+
+func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesRequest) error {
+	name := req.GetName()
+	if name == "" {
+		return status.Error(codes.InvalidArgument, "Volume name not provided")
+	}
+	return nil
 }
 
 const (
