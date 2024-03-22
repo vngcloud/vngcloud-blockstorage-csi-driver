@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cuongpiger/joat/utils"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/csi/metrics"
+	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 	"github.com/vngcloud/vngcloud-go-sdk/client"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"

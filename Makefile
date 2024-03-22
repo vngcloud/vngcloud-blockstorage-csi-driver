@@ -36,7 +36,7 @@ VERSION     ?= $(shell git describe --tags --match='v*')
 GOARCH		:=
 GOFLAGS		:=
 TAGS		:=
-LDFLAGS		:= "-w -s -X 'k8s.io/component-base/version.gitVersion=$(VERSION)' -X 'k8s.io/cloud-provider-openstack/pkg/version.Version=$(VERSION)'"
+LDFLAGS		:= "-w -s -X 'k8s.io/component-base/version.gitVersion=$(VERSION)' -X 'github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver.driverVersion=$(VERSION)'"
 GOX_LDFLAGS	:= $(shell echo "$(LDFLAGS) -extldflags \"-static\"")
 REGISTRY	?= docker.io/manhcuong8499
 IMAGE_OS	?= linux
@@ -145,10 +145,9 @@ shell:
 # Build a single image for the local default platform and push to the local
 # container engine
 build-local-image-%:
-	$(CONTAINER_ENGINE) buildx build --output type=docker \
+	$(CONTAINER_ENGINE) build \
 		--build-arg VERSION=$(VERSION) \
 		--tag $(REGISTRY)/$*:$(VERSION) \
-		--target $* \
 		.
 
 # Build all images locally

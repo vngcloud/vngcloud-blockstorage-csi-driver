@@ -2,6 +2,7 @@ module github.com/vngcloud/vngcloud-blockstorage-csi-driver
 
 go 1.21.6
 
+
 require (
 	github.com/container-storage-interface/spec v1.9.0
 	github.com/cuongpiger/joat v0.0.3
