@@ -1,6 +1,10 @@
 package cloud
 
-type MetadataService interface{}
+type MetadataService interface {
+	GetInstanceID() string
+	GetProjectID() string
+}
 
-type VServerMetadata interface {
+type IVServerMetadata interface {
+	GetMetadata() *VServerMetadata
 }

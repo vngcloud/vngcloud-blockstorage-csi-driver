@@ -4,13 +4,13 @@ import (
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 	"k8s.io/klog/v2"
-	"os"
 )
 
 var (
 	// NewMetadataFunc is a variable for the cloud.NewMetadata function that can
 	// be overwritten in unit tests.
 	NewMetadataFunc = cloud.NewMetadataService
+	NewCloudFunc    = cloud.NewCloud
 )
 
 type controllerService struct {
@@ -23,19 +23,13 @@ type controllerService struct {
 // newControllerService creates a new controller service
 // it panics if failed to create the service
 func newControllerService(driverOptions *DriverOptions) controllerService {
-	region := os.Getenv("AWS_REGION")
-	if region == "" {
-		klog.V(5).InfoS("[Debug] Retrieving region from metadata service")
-		metadata, err := NewMetadataFunc(cloud.DefaultEC2MetadataClient, cloud.DefaultKubernetesAPIClient, region)
-		if err != nil {
-			klog.ErrorS(err, "Could not determine region from any metadata service. The region can be manually supplied via the AWS_REGION environment variable.")
-			panic(err)
-		}
-		region = metadata.GetRegion()
+	metadata, err := NewMetadataFunc(cloud.DefaultVServerMetadataClient)
+	if err != nil {
+		klog.ErrorS(err, "Could not determine region from any metadata service. The region can be manually supplied via the AWS_REGION environment variable.")
+		panic(err)
 	}
 
-	klog.InfoS("batching", "status", driverOptions.batching)
-	cloudSrv, err := NewCloudFunc(region, driverOptions.awsSdkDebugLog, driverOptions.userAgentExtra, driverOptions.batching)
+	cloudSrv, err := NewCloudFunc(driverOptions.identityURL, driverOptions.vServerURL, driverOptions.clientID, driverOptions.clientSecret, metadata)
 	if err != nil {
 		panic(err)
 	}
