@@ -39,6 +39,7 @@ type (
 	Meta struct {
 		Product    string `json:"product,omitempty"`
 		PortalUUID string `json:"portal_uuid,omitempty"`
+		ProjectID  string `json:"project_id,omitempty"`
 	}
 )
 

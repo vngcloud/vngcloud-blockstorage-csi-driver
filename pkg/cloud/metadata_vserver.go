@@ -77,9 +77,9 @@ func VServerMetadataInstanceInfo(psvc IVServerMetadata) (MetadataService, error)
 		return nil, ErrMetadataEmpty
 	}
 
-	metadataCache.UUID = instanceInfo.UUID
+	metadataCache.UUID = instanceInfo.Meta.PortalUUID
 	metadataCache.Name = instanceInfo.Name
-	metadataCache.ProjectID = instanceInfo.ProjectID
+	metadataCache.ProjectID = instanceInfo.Meta.ProjectID
 
 	return metadataCache, nil
 }
