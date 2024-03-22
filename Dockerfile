@@ -89,13 +89,13 @@ SHELL ["/bin/sh"]
 RUN /tools/csi-deps-check.sh
 
 # step 3: build tiny cinder-csi-plugin image with only necessary files
-FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE} as cinder-csi-plugin
+FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE} as vngcloud-blockstorage-csi-driver
 
 # Copying csi-deps-check.sh simply ensures that the resulting image has a dependency
 # on vngcloud-blockstorage-csi-driver-utils-check and therefore that the check has passed
 COPY --from=vngcloud-blockstorage-csi-driver-utils-check /tools/csi-deps-check.sh /bin/csi-deps-check.sh
 COPY --from=vngcloud-blockstorage-csi-driver-utils /dest /
-COPY --from=builder /build/cinder-csi-plugin /bin/cinder-csi-plugin
+COPY --from=builder /build/vngcloud-blockstorage-csi-driver /bin/vngcloud-blockstorage-csi-driver
 COPY --from=certs /etc/ssl/certs /etc/ssl/certs
 
 LABEL name="vngcloud-blockstorage-csi-driver" \
