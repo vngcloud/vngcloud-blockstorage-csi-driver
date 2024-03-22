@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+const (
+	GiB = 1024 * 1024 * 1024
+)
+
 func ParseEndpoint(endpoint string) (string, string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
@@ -29,4 +33,15 @@ func ParseEndpoint(endpoint string) (string, string, error) {
 	}
 
 	return scheme, addr, nil
+}
+
+// RoundUpBytes rounds up the volume size in bytes upto multiplications of GiB
+// in the unit of Bytes
+func RoundUpBytes(volumeSizeBytes int64) int64 {
+	return roundUpSize(volumeSizeBytes, GiB) * GiB
+}
+
+// TODO: check division by zero and int overflow
+func roundUpSize(volumeSizeBytes int64, allocationUnitBytes int64) int64 {
+	return (volumeSizeBytes + allocationUnitBytes - 1) / allocationUnitBytes
 }
