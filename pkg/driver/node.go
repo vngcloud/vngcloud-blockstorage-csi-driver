@@ -188,7 +188,13 @@ func (s *nodeService) NodeGetCapabilities(_ context.Context, req *csi.NodeGetCap
 }
 
 func (s *nodeService) NodeGetInfo(_ context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
-	return &csi.NodeGetInfoResponse{}, nil
+	nodeUUID := s.metadata.GetInstanceID()
+	klog.V(5).Infof("NodeGetInfo; called with nodeID %s and req: %#v", nodeUUID, req)
+
+	return &csi.NodeGetInfoResponse{
+		NodeId:            nodeUUID,
+		MaxVolumesPerNode: 26,
+	}, nil
 }
 
 func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
