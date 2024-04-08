@@ -32,13 +32,14 @@ TAR_FILE	?= rootfs.tar
 
 GOOS		?= $(shell go env GOOS)
 GOPROXY		?= $(shell go env GOPROXY)
-VERSION     ?= $(shell git describe --tags --match='v*')
+#VERSION     ?= $(shell git describe --tags --match='v*')
+VERSION     := "v0.0.0"
 GOARCH		:=
 GOFLAGS		:=
 TAGS		:=
 LDFLAGS		:= "-w -s -X 'k8s.io/component-base/version.gitVersion=$(VERSION)' -X 'github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver.driverVersion=$(VERSION)'"
 GOX_LDFLAGS	:= $(shell echo "$(LDFLAGS) -extldflags \"-static\"")
-REGISTRY	?= docker.io/manhcuong8499
+REGISTRY	?= vcr.vngcloud.vn/60108-cuongdm3
 IMAGE_OS	?= linux
 IMAGE_NAMES	?= vngcloud-blockstorage-csi-driver
 ARCH		?= amd64

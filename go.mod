@@ -2,13 +2,10 @@ module github.com/vngcloud/vngcloud-blockstorage-csi-driver
 
 go 1.21.6
 
-
 require (
 	github.com/container-storage-interface/spec v1.9.0
 	github.com/cuongpiger/joat v0.0.3
-	github.com/kubernetes-csi/csi-lib-utils v0.17.0
 	github.com/spf13/pflag v1.0.5
-	github.com/stretchr/testify v1.8.4
 	github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0
 	github.com/vngcloud/vngcloud-go-sdk v0.0.0-20240321010107-cc130142df3a
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
@@ -16,8 +13,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.24.0
 	go.opentelemetry.io/otel/sdk v1.24.0
-	golang.org/x/net v0.21.0
-	golang.org/x/sys v0.17.0
 	google.golang.org/grpc v1.62.1
 	gopkg.in/gcfg.v1 v1.2.3
 	k8s.io/api v0.29.3
@@ -67,7 +62,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/onsi/ginkgo/v2 v2.13.2 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.16.0 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
@@ -87,7 +81,9 @@ require (
 	golang.org/x/crypto v0.19.0 // indirect
 	golang.org/x/exp v0.0.0-20240103183307-be819d1f06fc // indirect
 	golang.org/x/mod v0.14.0 // indirect
+	golang.org/x/net v0.21.0 // indirect
 	golang.org/x/oauth2 v0.16.0 // indirect
+	golang.org/x/sys v0.17.0 // indirect
 	golang.org/x/term v0.17.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
