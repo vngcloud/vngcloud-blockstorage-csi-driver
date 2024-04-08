@@ -50,7 +50,7 @@ func noProxyHTTPClient() *http.Client {
 }
 
 func parseMetadata(r io.Reader) (*VServerMetadata, error) {
-	if vServerMetadataCache != nil {
+	if vServerMetadataCache == nil {
 		var metadata VServerMetadata
 		jsonDecoder := json.NewDecoder(r)
 		if err := jsonDecoder.Decode(&metadata); err != nil {
@@ -77,6 +77,7 @@ func VServerMetadataInstanceInfo(psvc IVServerMetadata) (MetadataService, error)
 		return nil, ErrMetadataEmpty
 	}
 
+	metadataCache = &Metadata{}
 	metadataCache.UUID = instanceInfo.Meta.PortalUUID
 	metadataCache.Name = instanceInfo.Name
 	metadataCache.ProjectID = instanceInfo.Meta.ProjectID

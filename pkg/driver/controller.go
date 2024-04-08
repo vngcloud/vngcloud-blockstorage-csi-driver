@@ -58,6 +58,7 @@ func newControllerService(driverOptions *DriverOptions) controllerService {
 		panic(err)
 	}
 
+	klog.Infof("The driver options are: %v", driverOptions)
 	cloudSrv, err := NewCloudFunc(driverOptions.identityURL, driverOptions.vServerURL, driverOptions.clientID, driverOptions.clientSecret, metadata)
 	if err != nil {
 		panic(err)

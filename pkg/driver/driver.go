@@ -41,11 +41,13 @@ type DriverOptions struct {
 	endpoint                          string
 	mode                              Mode
 	otelTracing                       bool
+	userAgentExtra                    string
 	modifyVolumeRequestHandlerTimeout time.Duration
 	clientID                          string
 	clientSecret                      string
 	identityURL                       string
 	vServerURL                        string
+	batching                          bool
 }
 
 func NewDriver(options ...func(*DriverOptions)) (*Driver, error) {
@@ -126,6 +128,12 @@ func WithClientSecret(clientSecret string) func(*DriverOptions) {
 func WithIdentityURL(identityURL string) func(*DriverOptions) {
 	return func(o *DriverOptions) {
 		o.identityURL = identityURL
+	}
+}
+
+func WithUserAgentExtra(userAgentExtra string) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.userAgentExtra = userAgentExtra
 	}
 }
 

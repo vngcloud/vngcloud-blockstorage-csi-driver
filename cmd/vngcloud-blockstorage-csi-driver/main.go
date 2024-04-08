@@ -6,7 +6,6 @@ import (
 	flag "github.com/spf13/pflag"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
-	"gopkg.in/gcfg.v1"
 	"k8s.io/component-base/featuregate"
 	"os"
 	"strings"
@@ -83,10 +82,6 @@ type Options struct {
 	*Global
 }
 
-type Config struct {
-	Global Global
-}
-
 type Global struct {
 	IdentityURL  string `gcfg:"identity-url" mapstructure:"identity-url" name:"identity-url"`
 	VServerURL   string `gcfg:"vserver-url" mapstructure:"vserver-url" name:"vserver-url"`
@@ -98,22 +93,22 @@ type ServerOptions struct {
 	Endpoint          string
 	HttpEndpoint      string
 	EnableOtelTracing bool
-	ConfigFilePath    string
 }
 
 func (s *ServerOptions) AddFlags(fs *flag.FlagSet) {
 	fs.StringVar(&s.Endpoint, "endpoint", driver.DefaultCSIEndpoint, "Endpoint for the CSI driver server")
 	fs.StringVar(&s.HttpEndpoint, "http-endpoint", "", "The TCP network address where the HTTP server for metrics will listen (example: `:8080`). The default is empty string, which means the server is disabled.")
 	fs.BoolVar(&s.EnableOtelTracing, "enable-otel-tracing", false, "To enable opentelemetry tracing for the driver. The tracing is disabled by default. Configure the exporter endpoint with OTEL_EXPORTER_OTLP_ENDPOINT and other env variables, see https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration.")
-	fs.StringVar(&s.ConfigFilePath, "config-file-path", "/etc/config/vcontainer-csi-config.conf", "Path to the configuration file")
 }
 
 type ControllerOptions struct {
 	ModifyVolumeRequestHandlerTimeout time.Duration
+	UserAgentExtra                    string
 }
 
 func (s *ControllerOptions) AddFlags(fs *flag.FlagSet) {
 	fs.DurationVar(&s.ModifyVolumeRequestHandlerTimeout, "modify-volume-request-handler-timeout", driver.DefaultModifyVolumeRequestHandlerTimeout, "Timeout for the window in which volume modification calls must be received in order for them to coalesce into a single volume modification call to AWS. This must be lower than the csi-resizer and volumemodifier timeouts")
+	fs.StringVar(&s.UserAgentExtra, "user-agent-extra", "", "Extra string appended to user agent.")
 
 }
 
@@ -201,12 +196,7 @@ func GetOptions(fs *flag.FlagSet) *Options {
 		klog.SetOutput(os.Stderr)
 	}
 
-	if serverOptions.ConfigFilePath == "" {
-		klog.Errorf("Config file path is empty")
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-	}
-
-	config, err := getConfigFromFiles([]string{serverOptions.ConfigFilePath})
+	config, err := getConfigFromEnv()
 	if err != nil {
 		klog.Errorf("Failed to get config from files: %v", err)
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
@@ -217,32 +207,27 @@ func GetOptions(fs *flag.FlagSet) *Options {
 		ServerOptions:     &serverOptions,
 		ControllerOptions: &controllerOptions,
 		NodeOptions:       &nodeOptions,
-		Global:            &config.Global,
+		Global:            config,
 	}
 
 	return options
 }
 
-func getConfigFromFiles(configFiles []string) (*Config, error) {
-	var cfg Config
+func getConfigFromEnv() (*Global, error) {
+	clientID := os.Getenv("VNGCLOUD_ACCESS_KEY_ID")
+	clientSecret := os.Getenv("VNGCLOUD_SECRET_ACCESS_KEY")
+	identityEndpoint := os.Getenv("VNGCLOUD_IDENTITY_ENDPOINT")
+	vserverEndpoint := os.Getenv("VNGCLOUD_VSERVER_ENDPOINT")
 
-	// Read all specified config files in order. Values from later config files
-	// will overwrite values from earlier ones.
-	for _, configFilePath := range configFiles {
-		config, err := os.Open(configFilePath)
-		if err != nil {
-			klog.Errorf("failed to open VngCloud configuration file: %v", err)
-			return nil, err
-		}
-
-		defer config.Close()
-
-		err = gcfg.FatalOnly(gcfg.ReadInto(&cfg, config))
-		if err != nil {
-			klog.Errorf("failed to read VngCloud configuration file: %v", err)
-			return nil, err
-		}
+	if clientID == "" || clientSecret == "" || identityEndpoint == "" || vserverEndpoint == "" {
+		return nil, fmt.Errorf("missing required environment variables")
 	}
+
+	var cfg Global
+	cfg.ClientID = clientID
+	cfg.ClientSecret = clientSecret
+	cfg.IdentityURL = identityEndpoint
+	cfg.VServerURL = vserverEndpoint
 
 	return &cfg, nil
 }
