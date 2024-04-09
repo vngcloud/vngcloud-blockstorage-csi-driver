@@ -142,3 +142,15 @@ func validateControllerPublishVolumeRequest(preq *lcsi.ControllerPublishVolumeRe
 	}
 	return nil
 }
+
+func validateControllerUnpublishVolumeRequest(req *lcsi.ControllerUnpublishVolumeRequest) error {
+	if len(req.GetVolumeId()) == 0 {
+		return ErrVolumeIDNotProvided
+	}
+
+	if len(req.GetNodeId()) == 0 {
+		return ErrNodeIdNotProvided
+	}
+
+	return nil
+}

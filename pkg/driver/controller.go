@@ -193,7 +193,32 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 }
 
 func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
-	return nil, nil
+	klog.V(4).InfoS("ControllerUnpublishVolume: called", "args", *req)
+
+	if err := validateControllerUnpublishVolumeRequest(req); err != nil {
+		return nil, err
+	}
+
+	volumeID := req.GetVolumeId()
+	nodeID := req.GetNodeId()
+
+	if !s.inFlight.Insert(volumeID + nodeID) {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+	}
+	defer s.inFlight.Delete(volumeID + nodeID)
+	if volumeID == "" {
+		klog.Errorf("ControllerUnpublishVolume; Volume ID is required")
+		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
+	}
+
+	_ = s.cloud.DetachVolume(nodeID, volumeID)
+
+	if err := s.cloud.WaitDiskDetached(nodeID, volumeID); err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to wait disk detached; ERR: %v", err))
+	}
+
+	klog.V(4).Infof("ControllerUnpublishVolume; volume %s detached from instance %s successfully", volumeID, nodeID)
+	return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 func (s *controllerService) CreateSnapshot(ctx lctx.Context, req *lcsi.CreateSnapshotRequest) (*lcsi.CreateSnapshotResponse, error) {
@@ -208,8 +233,33 @@ func (s *controllerService) ListSnapshots(ctx lctx.Context, req *lcsi.ListSnapsh
 	return nil, status.Error(codes.Unimplemented, "ListSnapshots is not yet implemented")
 }
 
-func (s *controllerService) ValidateVolumeCapabilities(ctx lctx.Context, req *lcsi.ValidateVolumeCapabilitiesRequest) (*lcsi.ValidateVolumeCapabilitiesResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "ValidateVolumeCapabilities is not yet implemented")
+func (s *controllerService) ValidateVolumeCapabilities(pctx lctx.Context, preq *lcsi.ValidateVolumeCapabilitiesRequest) (*lcsi.ValidateVolumeCapabilitiesResponse, error) {
+	klog.V(4).InfoS("ValidateVolumeCapabilities: called", "args", *preq)
+	volumeID := preq.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	volCaps := preq.GetVolumeCapabilities()
+	if len(volCaps) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume capabilities not provided")
+	}
+
+	if _, err := s.cloud.GetVolume(volumeID); err != nil {
+		if err.Code == lvolV2.ErrVolumeNotFound {
+			return nil, status.Error(codes.NotFound, "Volume not found")
+		}
+
+		return nil, status.Errorf(codes.Internal, "Could not get volume with ID %q: %v", volumeID, err)
+	}
+
+	var confirmed *lcsi.ValidateVolumeCapabilitiesResponse_Confirmed
+	if isValidVolumeCapabilities(volCaps) {
+		confirmed = &lcsi.ValidateVolumeCapabilitiesResponse_Confirmed{VolumeCapabilities: volCaps}
+	}
+	return &lcsi.ValidateVolumeCapabilitiesResponse{
+		Confirmed: confirmed,
+	}, nil
 }
 
 func (s *controllerService) ListVolumes(ctx lctx.Context, req *lcsi.ListVolumesRequest) (*lcsi.ListVolumesResponse, error) {
@@ -242,31 +292,8 @@ func (s *controllerService) ControllerExpandVolume(ctx lctx.Context, req *lcsi.C
 }
 
 func (s *controllerService) ControllerGetVolume(ctx lctx.Context, req *lcsi.ControllerGetVolumeRequest) (*lcsi.ControllerGetVolumeResponse, error) {
-	klog.V(4).Infof("ControllerGetVolume; called with request %+v", req)
-
-	volumeID := req.GetVolumeId()
-	if volumeID == "" {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
-	}
-
-	volume, err := s.cloud.GetVolume(volumeID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get volume; ERR: %v", err))
-	}
-
-	volEntry := lcsi.ControllerGetVolumeResponse{
-		Volume: &lcsi.Volume{
-			VolumeId:      volume.VolumeId,
-			CapacityBytes: int64(volume.Size * (1024 ^ 3))}}
-
-	csiStatus := &lcsi.ControllerGetVolumeResponse_VolumeStatus{}
-	if isAttachment(volume.VmId) {
-		csiStatus.PublishedNodeIds = []string{*volume.VmId}
-	}
-
-	volEntry.Status = csiStatus
-
-	return &volEntry, nil
+	klog.V(4).InfoS("ControllerGetVolume: called", "args", *req)
+	return nil, status.Error(codes.Unimplemented, "")
 }
 
 func (s *controllerService) ControllerModifyVolume(ctx lctx.Context, req *lcsi.ControllerModifyVolumeRequest) (*lcsi.ControllerModifyVolumeResponse, error) {
