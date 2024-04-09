@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	DriverName = "bs.csi.vngcloud.vn"
+	DriverName      = "bs.csi.vngcloud.vn"
+	ZoneTopologyKey = "topology." + DriverName + "/zone"
 )
 
 // Mode is the operating mode of the CSI driver.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/container-storage-interface/spec/lib/go/csi"
+	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 	corev1 "k8s.io/api/core/v1"
@@ -157,43 +157,50 @@ func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
 	return nil
 }
 
-func (s *nodeService) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
-	return &csi.NodeStageVolumeResponse{}, nil
+func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVolumeRequest) (*lcsi.NodeStageVolumeResponse, error) {
+	return &lcsi.NodeStageVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error) {
-	return &csi.NodeUnstageVolumeResponse{}, nil
+func (s *nodeService) NodeUnstageVolume(ctx context.Context, req *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
+	return &lcsi.NodeUnstageVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
-	return &csi.NodePublishVolumeResponse{}, nil
+func (s *nodeService) NodePublishVolume(ctx context.Context, req *lcsi.NodePublishVolumeRequest) (*lcsi.NodePublishVolumeResponse, error) {
+	return &lcsi.NodePublishVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	return &csi.NodeUnpublishVolumeResponse{}, nil
+func (s *nodeService) NodeUnpublishVolume(ctx context.Context, req *lcsi.NodeUnpublishVolumeRequest) (*lcsi.NodeUnpublishVolumeResponse, error) {
+	return &lcsi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+func (s *nodeService) NodeGetVolumeStats(_ context.Context, req *lcsi.NodeGetVolumeStatsRequest) (*lcsi.NodeGetVolumeStatsResponse, error) {
 
-	return &csi.NodeGetVolumeStatsResponse{}, nil
+	return &lcsi.NodeGetVolumeStatsResponse{}, nil
 }
 
-func (s *nodeService) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error) {
+func (s *nodeService) NodeExpandVolume(ctx context.Context, req *lcsi.NodeExpandVolumeRequest) (*lcsi.NodeExpandVolumeResponse, error) {
 
-	return &csi.NodeExpandVolumeResponse{}, nil
+	return &lcsi.NodeExpandVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeGetCapabilities(_ context.Context, req *csi.NodeGetCapabilitiesRequest) (*csi.NodeGetCapabilitiesResponse, error) {
-	return &csi.NodeGetCapabilitiesResponse{}, nil
+func (s *nodeService) NodeGetCapabilities(_ context.Context, req *lcsi.NodeGetCapabilitiesRequest) (*lcsi.NodeGetCapabilitiesResponse, error) {
+	return &lcsi.NodeGetCapabilitiesResponse{}, nil
 }
 
-func (s *nodeService) NodeGetInfo(_ context.Context, req *csi.NodeGetInfoRequest) (*csi.NodeGetInfoResponse, error) {
+func (s *nodeService) NodeGetInfo(_ context.Context, _ *lcsi.NodeGetInfoRequest) (*lcsi.NodeGetInfoResponse, error) {
 	nodeUUID := s.metadata.GetInstanceID()
-	klog.V(5).Infof("NodeGetInfo; called with nodeID %s and req: %#v", nodeUUID, req)
+	zone := s.metadata.GetAvailabilityZone()
 
-	return &csi.NodeGetInfoResponse{
+	klog.V(5).InfoS("NodeGetInfo; called to get node info", "nodeUUID", nodeUUID, "zone", zone)
+
+	return &lcsi.NodeGetInfoResponse{
 		NodeId:            nodeUUID,
 		MaxVolumesPerNode: 26,
+		AccessibleTopology: &lcsi.Topology{
+			Segments: map[string]string{
+				ZoneTopologyKey: zone,
+			},
+		},
 	}, nil
 }
 

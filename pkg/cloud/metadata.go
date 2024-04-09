@@ -12,10 +12,11 @@ var (
 
 type (
 	Metadata struct {
-		UUID      string           `json:"uuid"`
-		Name      string           `json:"name"`
-		ProjectID string           `json:"project_id"`
-		Devices   []DeviceMetadata `json:"devices,omitempty"`
+		UUID             string           `json:"uuid"`
+		Name             string           `json:"name"`
+		ProjectID        string           `json:"project_id"`
+		AvailabilityZone string           `json:"availability_zone"`
+		Devices          []DeviceMetadata `json:"devices,omitempty"`
 	}
 
 	VServerMetadata struct {
@@ -49,6 +50,10 @@ func (s *Metadata) GetInstanceID() string {
 
 func (s *Metadata) GetProjectID() string {
 	return s.ProjectID
+}
+
+func (s *Metadata) GetAvailabilityZone() string {
+	return s.AvailabilityZone
 }
 
 func (s *VServerMetadata) GetMetadata() *VServerMetadata {

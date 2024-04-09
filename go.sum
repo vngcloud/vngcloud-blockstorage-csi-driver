@@ -16,8 +16,8 @@ github.com/container-storage-interface/spec v1.9.0 h1:zKtX4STsq31Knz3gciCYCi1SXt
 github.com/container-storage-interface/spec v1.9.0/go.mod h1:ZfDu+3ZRyeVqxZM0Ds19MVLkN2d1XJ5MAfi1L3VjlT0=
 github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/cuongpiger/joat v0.0.3 h1:UvEtJPaQpY+YSZLlJ+i3ZmGma7PrzjzEB2F40/QteIw=
-github.com/cuongpiger/joat v0.0.3/go.mod h1:L9xAY8xLkYse+w1+MsKGluojaeKBYyOHfzeqQEwmcY0=
+github.com/cuongpiger/joat v0.0.4 h1:HsFks8xndCiefrCjOeYSb9mAkHEoaWuua3XCnV8G8gs=
+github.com/cuongpiger/joat v0.0.4/go.mod h1:Tk6uoQureTVrFS6/M2Hdh1VKhQRp6KMHUrHnOIWQWQU=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
@@ -145,8 +145,8 @@ github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcU
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
 github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0 h1:CUfbN11yjZdndwOXtjWa/kAe8/KGaENnFojPVOUvsk8=
 github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0/go.mod h1:6fFAm1DK2qsdQmQub4Ps5jBFP/LQqLV/SEUf96j51u4=
-github.com/vngcloud/vngcloud-go-sdk v0.0.0-20240321010107-cc130142df3a h1:T+8ItnqR8T/pReEnAKShbCraapnsSprixECm2gv6Om8=
-github.com/vngcloud/vngcloud-go-sdk v0.0.0-20240321010107-cc130142df3a/go.mod h1:ooZo+kYuaDbn1HzS8KUEORKGj68yEtDx1XLJU06Xw4k=
+github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240409035755-c81b8b2fc33c h1:q5QmcGygM+2iDPxibtvTFuztNQbRJLa+SM7+A6nO6Z8=
+github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240409035755-c81b8b2fc33c/go.mod h1:ooZo+kYuaDbn1HzS8KUEORKGj68yEtDx1XLJU06Xw4k=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
@@ -261,12 +261,8 @@ gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8
 gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c h1:Hei/4ADfdWqJk1ZMxUNpqntNwaWcugrBjAiHlqqRiVk=
 gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c/go.mod h1:JHkPIbrfpd72SG/EVd6muEfDQjcINNoR0C8j2r3qZ4Q=
-gopkg.in/gcfg.v1 v1.2.3 h1:m8OOJ4ccYHnx2f4gQwpno8nAX5OGOh7RLaaz0pj3Ogs=
-gopkg.in/gcfg.v1 v1.2.3/go.mod h1:yesOnuUOFQAhST5vPY4nbZsb/huCgGGXlipJsBn0b3o=
 gopkg.in/inf.v0 v0.9.1 h1:73M5CoZyi3ZLMOyDlQh031Cx6N9NDJ2Vvfl76EDAgDc=
 gopkg.in/inf.v0 v0.9.1/go.mod h1:cWUDdTG/fYaXco+Dcufb5Vnc6Gp2YChqWtbxRZE0mXw=
-gopkg.in/warnings.v0 v0.1.2 h1:wFXVbFY8DY5/xOe1ECiWdKCzZlxgshcYVNkBHstARME=
-gopkg.in/warnings.v0 v0.1.2/go.mod h1:jksf8JmL6Qr/oQM2OXTHunEvvTAsrWBLb6OOjuVWRNI=
 gopkg.in/yaml.v2 v2.2.2/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
 gopkg.in/yaml.v2 v2.2.8/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=
 gopkg.in/yaml.v2 v2.4.0 h1:D8xgwECY7CYvx+Y2n4sBz93Jn9JRvxdiyyo8CTfuKaY=

@@ -1,17 +1,18 @@
 package driver
 
 import (
-	"context"
+	lctx "context"
 	"fmt"
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
-	obj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
+	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
+	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
-	"strconv"
+
+	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 )
 
 var (
@@ -24,19 +25,19 @@ var (
 // Supported access modes
 const (
 	vContainerCSIClusterIDKey = DriverName + "/cluster"
-	SingleNodeWriter          = csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
-	MultiNodeMultiWriter      = csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
+	SingleNodeWriter          = lcsi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
+	MultiNodeMultiWriter      = lcsi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
 )
 
 var (
 	// controllerCaps represents the capability of controller service
-	controllerCaps = []csi.ControllerServiceCapability_RPC_Type{
-		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
-		csi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
-		csi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
-		csi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
-		csi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
-		csi.ControllerServiceCapability_RPC_MODIFY_VOLUME,
+	controllerCaps = []lcsi.ControllerServiceCapability_RPC_Type{
+		lcsi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		lcsi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		lcsi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		lcsi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+		lcsi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		lcsi.ControllerServiceCapability_RPC_MODIFY_VOLUME,
 	}
 )
 
@@ -72,67 +73,113 @@ func newControllerService(driverOptions *DriverOptions) controllerService {
 	}
 }
 
-func (d *controllerService) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVolumeRequest) (*lcsi.CreateVolumeResponse, error) {
+	klog.V(5).InfoS("CreateVolume: called", "preq", *preq)
+
+	// Validate the create volume request
+	if err := validateCreateVolumeRequest(preq); err != nil {
+		klog.Errorf("CreateVolume: invalid request: %v", err)
+		return nil, err
+	}
+
+	// Validate volume size, if volume size is less than the default volume size of cloud provider,
+	// set it to the default volume size
+	volSizeBytes, err := getVolSizeBytes(preq)
+	if err != nil {
+		klog.Errorf("CreateVolume: invalid request: %v", err)
+		return nil, err
+	}
+
+	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
+	volCap := preq.GetVolumeCapabilities() // get volume capabilities
+	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
+
+	// check if a request is already in-flight
+	if ok := s.inFlight.Insert(volName); !ok {
+		msg := fmt.Sprintf(volumeCreatingInProgress, volName)
+		return nil, status.Error(codes.Aborted, msg)
+	}
+	defer s.inFlight.Delete(volName)
+
+	_, err = parseModifyVolumeParameters(preq.GetMutableParameters())
+	if err != nil {
+		klog.Errorf("CreateVolume: invalid request: %v", err)
+		return nil, ErrModifyMutableParam
+	}
+
+	reqOpts := new(lvolV2.CreateOpts)
+	reqOpts.Name = volName
+	reqOpts.MultiAttach = multiAttach
+	reqOpts.Size = uint64(volSizeBytes)
+	reqOpts.VolumeTypeId = preq.GetParameters()["type"]
+	reqOpts.IsPoc = false
+
+	resp, err := s.cloud.CreateVolume(reqOpts)
+	if err != nil {
+		klog.Errorf("CreateVolume: failed to create volume: %v", err)
+		return nil, err
+	}
+
+	return newCreateVolumeResponse(resp), nil
+}
+
+func (s *controllerService) DeleteVolume(ctx lctx.Context, req *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
+	return nil, nil
+}
+func (s *controllerService) ControllerPublishVolume(ctx lctx.Context, req *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
 	return nil, nil
 }
 
-func (d *controllerService) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	return nil, nil
-}
-func (s *controllerService) ControllerPublishVolume(ctx context.Context, req *csi.ControllerPublishVolumeRequest) (result *csi.ControllerPublishVolumeResponse, err error) {
+func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
 	return nil, nil
 }
 
-func (s *controllerService) ControllerUnpublishVolume(ctx context.Context, req *csi.ControllerUnpublishVolumeRequest) (*csi.ControllerUnpublishVolumeResponse, error) {
-	return nil, nil
-}
-
-func (s *controllerService) CreateSnapshot(ctx context.Context, req *csi.CreateSnapshotRequest) (*csi.CreateSnapshotResponse, error) {
+func (s *controllerService) CreateSnapshot(ctx lctx.Context, req *lcsi.CreateSnapshotRequest) (*lcsi.CreateSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "CreateSnapshot is not yet implemented")
 }
 
-func (s *controllerService) DeleteSnapshot(ctx context.Context, req *csi.DeleteSnapshotRequest) (*csi.DeleteSnapshotResponse, error) {
+func (s *controllerService) DeleteSnapshot(ctx lctx.Context, req *lcsi.DeleteSnapshotRequest) (*lcsi.DeleteSnapshotResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "DeleteSnapshot is not yet implemented")
 }
 
-func (s *controllerService) ListSnapshots(ctx context.Context, req *csi.ListSnapshotsRequest) (*csi.ListSnapshotsResponse, error) {
+func (s *controllerService) ListSnapshots(ctx lctx.Context, req *lcsi.ListSnapshotsRequest) (*lcsi.ListSnapshotsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "ListSnapshots is not yet implemented")
 }
 
-func (s *controllerService) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+func (s *controllerService) ValidateVolumeCapabilities(ctx lctx.Context, req *lcsi.ValidateVolumeCapabilitiesRequest) (*lcsi.ValidateVolumeCapabilitiesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "ValidateVolumeCapabilities is not yet implemented")
 }
 
-func (d *controllerService) ListVolumes(ctx context.Context, req *csi.ListVolumesRequest) (*csi.ListVolumesResponse, error) {
+func (s *controllerService) ListVolumes(ctx lctx.Context, req *lcsi.ListVolumesRequest) (*lcsi.ListVolumesResponse, error) {
 	klog.V(4).InfoS("ListVolumes: called", "args", *req)
 	return nil, status.Error(codes.Unimplemented, "")
 }
 
-func (s *controllerService) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
+func (s *controllerService) GetCapacity(ctx lctx.Context, req *lcsi.GetCapacityRequest) (*lcsi.GetCapacityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "GetCapacity is not yet implemented")
 }
 
-func (d *controllerService) ControllerGetCapabilities(ctx context.Context, req *csi.ControllerGetCapabilitiesRequest) (*csi.ControllerGetCapabilitiesResponse, error) {
+func (s *controllerService) ControllerGetCapabilities(ctx lctx.Context, req *lcsi.ControllerGetCapabilitiesRequest) (*lcsi.ControllerGetCapabilitiesResponse, error) {
 	klog.V(4).InfoS("ControllerGetCapabilities: called", "args", *req)
-	var caps []*csi.ControllerServiceCapability
-	for _, cap := range controllerCaps {
-		c := &csi.ControllerServiceCapability{
-			Type: &csi.ControllerServiceCapability_Rpc{
-				Rpc: &csi.ControllerServiceCapability_RPC{
-					Type: cap,
+	var caps []*lcsi.ControllerServiceCapability
+	for _, capa := range controllerCaps {
+		c := &lcsi.ControllerServiceCapability{
+			Type: &lcsi.ControllerServiceCapability_Rpc{
+				Rpc: &lcsi.ControllerServiceCapability_RPC{
+					Type: capa,
 				},
 			},
 		}
 		caps = append(caps, c)
 	}
-	return &csi.ControllerGetCapabilitiesResponse{Capabilities: caps}, nil
+	return &lcsi.ControllerGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
-func (s *controllerService) ControllerExpandVolume(ctx context.Context, req *csi.ControllerExpandVolumeRequest) (*csi.ControllerExpandVolumeResponse, error) {
+func (s *controllerService) ControllerExpandVolume(ctx lctx.Context, req *lcsi.ControllerExpandVolumeRequest) (*lcsi.ControllerExpandVolumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "ControllerExpandVolume is not yet implemented")
 }
 
-func (s *controllerService) ControllerGetVolume(ctx context.Context, req *csi.ControllerGetVolumeRequest) (*csi.ControllerGetVolumeResponse, error) {
+func (s *controllerService) ControllerGetVolume(ctx lctx.Context, req *lcsi.ControllerGetVolumeRequest) (*lcsi.ControllerGetVolumeResponse, error) {
 	klog.V(4).Infof("ControllerGetVolume; called with request %+v", req)
 
 	volumeID := req.GetVolumeId()
@@ -145,12 +192,12 @@ func (s *controllerService) ControllerGetVolume(ctx context.Context, req *csi.Co
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get volume; ERR: %v", err))
 	}
 
-	volEntry := csi.ControllerGetVolumeResponse{
-		Volume: &csi.Volume{
+	volEntry := lcsi.ControllerGetVolumeResponse{
+		Volume: &lcsi.Volume{
 			VolumeId:      volume.VolumeId,
 			CapacityBytes: int64(volume.Size * (1024 ^ 3))}}
 
-	csiStatus := &csi.ControllerGetVolumeResponse_VolumeStatus{}
+	csiStatus := &lcsi.ControllerGetVolumeResponse_VolumeStatus{}
 	if isAttachment(volume.VmId) {
 		csiStatus.PublishedNodeIds = []string{*volume.VmId}
 	}
@@ -160,7 +207,7 @@ func (s *controllerService) ControllerGetVolume(ctx context.Context, req *csi.Co
 	return &volEntry, nil
 }
 
-func (d *controllerService) ControllerModifyVolume(ctx context.Context, req *csi.ControllerModifyVolumeRequest) (*csi.ControllerModifyVolumeResponse, error) {
+func (s *controllerService) ControllerModifyVolume(ctx lctx.Context, req *lcsi.ControllerModifyVolumeRequest) (*lcsi.ControllerModifyVolumeResponse, error) {
 	klog.V(4).InfoS("ControllerModifyVolume: called", "args", *req)
 
 	volumeID := req.GetVolumeId()
@@ -173,23 +220,23 @@ func (d *controllerService) ControllerModifyVolume(ctx context.Context, req *csi
 		return nil, err
 	}
 
-	err = d.modifyVolumeWithCoalescing(ctx, volumeID, options)
+	err = s.modifyVolumeWithCoalescing(ctx, volumeID, options)
 	if err != nil {
 		return nil, err
 	}
 
-	return &csi.ControllerModifyVolumeResponse{}, nil
+	return &lcsi.ControllerModifyVolumeResponse{}, nil
 }
 
-func (d *controllerService) GetCSIDriverModificationCapability(
-	_ context.Context,
+func (s *controllerService) GetCSIDriverModificationCapability(
+	_ lctx.Context,
 	_ *rpc.GetCSIDriverModificationCapabilityRequest,
 ) (*rpc.GetCSIDriverModificationCapabilityResponse, error) {
 	return &rpc.GetCSIDriverModificationCapabilityResponse{}, nil
 }
 
-func (d *controllerService) ModifyVolumeProperties(
-	ctx context.Context,
+func (s *controllerService) ModifyVolumeProperties(
+	ctx lctx.Context,
 	req *rpc.ModifyVolumePropertiesRequest,
 ) (*rpc.ModifyVolumePropertiesResponse, error) {
 	klog.V(4).InfoS("ModifyVolumeProperties called", "req", req)
@@ -203,45 +250,12 @@ func (d *controllerService) ModifyVolumeProperties(
 	}
 
 	name := req.GetName()
-	err = d.modifyVolumeWithCoalescing(ctx, name, options)
+	err = s.modifyVolumeWithCoalescing(ctx, name, options)
 	if err != nil {
 		return nil, err
 	}
 
 	return &rpc.ModifyVolumePropertiesResponse{}, nil
-}
-
-func getCreateVolumeResponse(vol *obj.Volume) *csi.CreateVolumeResponse {
-	var volsrc *csi.VolumeContentSource
-	resp := &csi.CreateVolumeResponse{
-		Volume: &csi.Volume{
-			VolumeId:      vol.VolumeId,
-			CapacityBytes: int64(vol.Size * 1024 * 1024 * 1024),
-			ContentSource: volsrc,
-		},
-	}
-
-	return resp
-
-}
-
-func parseModifyVolumeParameters(params map[string]string) (*cloud.ModifyDiskOptions, error) {
-	options := cloud.ModifyDiskOptions{}
-
-	for key, value := range params {
-		switch key {
-		case ModificationKeyIOPS:
-			iops, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse IOPS: %q", value)
-			}
-			options.IOPS = iops
-		case ModificationKeyVolumeType:
-			options.VolumeType = value
-		}
-	}
-
-	return &options, nil
 }
 
 func isAttachment(vmId *string) bool {
@@ -260,7 +274,18 @@ func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesReques
 }
 
 const (
-	ModificationKeyVolumeType = "type"
+	ModificationKeyVolumeType = "volumeType"
 
-	ModificationKeyIOPS = "iops"
+	ModificationVolumeSize = "volumeSize"
 )
+
+func newCreateVolumeResponse(disk *lsdkObj.Volume) *lcsi.CreateVolumeResponse {
+	//var src *lcsi.VolumeContentSource
+
+	return &lcsi.CreateVolumeResponse{
+		Volume: &lcsi.Volume{
+			VolumeId:      disk.VolumeId,
+			CapacityBytes: int64(disk.Size * 1024 * 1024 * 1024),
+		},
+	}
+}

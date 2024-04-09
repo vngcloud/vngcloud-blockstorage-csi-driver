@@ -34,7 +34,7 @@ type modifyVolumeRequest struct {
 	responseChan chan modifyVolumeResponse
 }
 
-func (d *controllerService) modifyVolumeWithCoalescing(ctx context.Context, volume string, options *cloud.ModifyDiskOptions) error {
+func (s *controllerService) modifyVolumeWithCoalescing(ctx context.Context, volume string, options *cloud.ModifyDiskOptions) error {
 	responseChan := make(chan modifyVolumeResponse)
 	request := modifyVolumeRequest{
 		modifyDiskOptions: *options,
@@ -42,7 +42,7 @@ func (d *controllerService) modifyVolumeWithCoalescing(ctx context.Context, volu
 	}
 
 	// Intentionally not pass in context as we deal with context locally in this method
-	d.addModifyVolumeRequest(volume, &request) //nolint:contextcheck
+	s.addModifyVolumeRequest(volume, &request) //nolint:contextcheck
 
 	select {
 	case response := <-responseChan:
@@ -65,15 +65,15 @@ func (d *controllerService) modifyVolumeWithCoalescing(ctx context.Context, volu
 // If there’s ModifyVolumeRequestHandler for the volume, meaning that there is inflight request(s) for the volume, we will send the new request
 // to the goroutine for the volume via the receiving channel.
 // Note that each volume with inflight requests has their own goroutine which follows timeout schedule of their own.
-func (d *controllerService) addModifyVolumeRequest(volumeID string, r *modifyVolumeRequest) {
+func (s *controllerService) addModifyVolumeRequest(volumeID string, r *modifyVolumeRequest) {
 	requestHandler := newModifyVolumeRequestHandler(volumeID, r)
-	handler, loaded := d.modifyVolumeManager.requestHandlerMap.LoadOrStore(volumeID, requestHandler)
+	handler, loaded := s.modifyVolumeManager.requestHandlerMap.LoadOrStore(volumeID, requestHandler)
 	if loaded {
 		h := handler.(modifyVolumeRequestHandler)
 		h.requestChan <- r
 	} else {
 		responseChans := []chan modifyVolumeResponse{r.responseChan}
-		go d.processModifyVolumeRequests(&requestHandler, responseChans)
+		go s.processModifyVolumeRequests(&requestHandler, responseChans)
 	}
 }
 
@@ -94,7 +94,7 @@ type modifyVolumeRequestHandler struct {
 	requestChan chan *modifyVolumeRequest
 }
 
-func (d *controllerService) processModifyVolumeRequests(h *modifyVolumeRequestHandler, responseChans []chan modifyVolumeResponse) {
+func (s *controllerService) processModifyVolumeRequests(h *modifyVolumeRequestHandler, responseChans []chan modifyVolumeResponse) {
 	klog.V(4).InfoS("Start processing ModifyVolumeRequest for ", "volume ID", h.volumeID)
 	process := func(req *modifyVolumeRequest) {
 		if err := h.validateModifyVolumeRequest(req); err != nil {
@@ -109,8 +109,8 @@ func (d *controllerService) processModifyVolumeRequests(h *modifyVolumeRequestHa
 		select {
 		case req := <-h.requestChan:
 			process(req)
-		case <-time.After(d.driverOptions.modifyVolumeRequestHandlerTimeout):
-			d.modifyVolumeManager.requestHandlerMap.Delete(h.volumeID)
+		case <-time.After(s.driverOptions.modifyVolumeRequestHandlerTimeout):
+			s.modifyVolumeManager.requestHandlerMap.Delete(h.volumeID)
 			// At this point, no new requests can come in on the request channel because it has been removed from the map
 			// However, the request channel may still have requests waiting on it
 			// Thus, process any requests still waiting in the channel
@@ -122,7 +122,7 @@ func (d *controllerService) processModifyVolumeRequests(h *modifyVolumeRequestHa
 					loop = false
 				}
 			}
-			actualSizeGiB, err := d.executeModifyVolumeRequest(h.volumeID, h.mergedRequest)
+			actualSizeGiB, err := s.executeModifyVolumeRequest(h.volumeID, h.mergedRequest)
 			for _, c := range responseChans {
 				select {
 				case c <- modifyVolumeResponse{volumeSize: actualSizeGiB, err: err}:
@@ -142,11 +142,8 @@ func (h *modifyVolumeRequestHandler) validateModifyVolumeRequest(r *modifyVolume
 	if r.newSize != 0 && h.mergedRequest.newSize != 0 && r.newSize != h.mergedRequest.newSize {
 		return fmt.Errorf("Different size was requested by a previous request. Current: %d, Requested: %d", h.mergedRequest.newSize, r.newSize)
 	}
-	if r.modifyDiskOptions.IOPS != 0 && h.mergedRequest.modifyDiskOptions.IOPS != 0 && r.modifyDiskOptions.IOPS != h.mergedRequest.modifyDiskOptions.IOPS {
-		return fmt.Errorf("Different IOPS was requested by a previous request. Current: %d, Requested: %d", h.mergedRequest.modifyDiskOptions.IOPS, r.modifyDiskOptions.IOPS)
-	}
-	if r.modifyDiskOptions.Throughput != 0 && h.mergedRequest.modifyDiskOptions.Throughput != 0 && r.modifyDiskOptions.Throughput != h.mergedRequest.modifyDiskOptions.Throughput {
-		return fmt.Errorf("Different throughput was requested by a previous request. Current: %d, Requested: %d", h.mergedRequest.modifyDiskOptions.Throughput, r.modifyDiskOptions.Throughput)
+	if r.modifyDiskOptions.VolumeSize != 0 && h.mergedRequest.modifyDiskOptions.VolumeSize != 0 && r.modifyDiskOptions.VolumeSize != h.mergedRequest.modifyDiskOptions.VolumeSize {
+		return fmt.Errorf("Different size was requested by a previous request. Current: %d, Requested: %d", h.mergedRequest.modifyDiskOptions.VolumeSize, r.modifyDiskOptions.VolumeSize)
 	}
 	if r.modifyDiskOptions.VolumeType != "" && h.mergedRequest.modifyDiskOptions.VolumeType != "" && r.modifyDiskOptions.VolumeType != h.mergedRequest.modifyDiskOptions.VolumeType {
 		return fmt.Errorf("Different volume type was requested by a previous request. Current: %s, Requested: %s", h.mergedRequest.modifyDiskOptions.VolumeType, r.modifyDiskOptions.VolumeType)
@@ -158,21 +155,18 @@ func (h *modifyVolumeRequestHandler) mergeModifyVolumeRequest(r *modifyVolumeReq
 	if r.newSize != 0 {
 		h.mergedRequest.newSize = r.newSize
 	}
-	if r.modifyDiskOptions.IOPS != 0 {
-		h.mergedRequest.modifyDiskOptions.IOPS = r.modifyDiskOptions.IOPS
-	}
-	if r.modifyDiskOptions.Throughput != 0 {
-		h.mergedRequest.modifyDiskOptions.Throughput = r.modifyDiskOptions.Throughput
+	if r.modifyDiskOptions.VolumeSize != 0 {
+		h.mergedRequest.modifyDiskOptions.VolumeSize = r.modifyDiskOptions.VolumeSize
 	}
 	if r.modifyDiskOptions.VolumeType != "" {
 		h.mergedRequest.modifyDiskOptions.VolumeType = r.modifyDiskOptions.VolumeType
 	}
 }
 
-func (d *controllerService) executeModifyVolumeRequest(volumeID string, req *modifyVolumeRequest) (int64, error) {
+func (s *controllerService) executeModifyVolumeRequest(volumeID string, req *modifyVolumeRequest) (int64, error) {
 	_, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	actualSizeGiB, err := d.cloud.ResizeOrModifyDisk(volumeID, req.newSize, &req.modifyDiskOptions)
+	actualSizeGiB, err := s.cloud.ResizeOrModifyDisk(volumeID, req.newSize, &req.modifyDiskOptions)
 	if err != nil {
 		return 0, err
 	} else {

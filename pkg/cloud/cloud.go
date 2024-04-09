@@ -10,8 +10,9 @@ import (
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
+
 	lVolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
-	lVol "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
+	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	lVolAtch "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/compute/v2/extensions/volume_attach"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/extensions/oauth2"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/tokens"
@@ -102,10 +103,10 @@ func (s *cloud) GetVolumesByName(name string) ([]*objects.Volume, error) {
 
 	var vols []*objects.Volume
 
-	opts := lVol.NewListOpts(s.extraInfo.ProjectID, name, 0, 0)
+	opts := lvolV2.NewListOpts(s.extraInfo.ProjectID, name, 0, 0)
 	mc := metrics.NewMetricContext("volume", "list")
-	err := lVol.List(s.volume, opts).EachPage(func(page pagination.IPage) (bool, error) {
-		vols = append(vols, page.GetBody().(*lVol.ListResponse).ToListVolumeObjects()...)
+	err := lvolV2.List(s.volume, opts).EachPage(func(page pagination.IPage) (bool, error) {
+		vols = append(vols, page.GetBody().(*lvolV2.ListResponse).ToListVolumeObjects()...)
 		return true, nil
 	})
 
@@ -116,34 +117,16 @@ func (s *cloud) GetVolumesByName(name string) ([]*objects.Volume, error) {
 	return vols, nil
 }
 
-func (s *cloud) CreateVolume(name string, size uint64, vtype, availability string, snapshotID string, sourcevolID string, tags *map[string]string) (*objects.Volume, error) {
-	klog.Infof("CreateVolume; called with name %s, size %d, vtype %s, availability %s, snapshotID %s, sourcevolID %s, tags %+v", name, size, vtype, availability, snapshotID, sourcevolID, tags)
-
-	opts := lVol.NewCreateOpts(
-		s.extraInfo.ProjectID,
-		&lVol.CreateOpts{
-			Name:             name,
-			Size:             size,
-			VolumeTypeId:     vtype,
-			CreatedFrom:      "NEW",
-			PersistentVolume: true,
-			MultiAttach:      false,
-		})
-
-	mc := metrics.NewMetricContext("volume", "create")
-	vol, err := lVol.Create(s.volume, opts)
-
-	if mc.ObserveRequest(err) != nil {
-		return nil, err
-	}
-
-	return vol, nil
+func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*objects.Volume, error) {
+	popts.CreatedFrom = CreateFromNew
+	vol, err := lvolV2.Create(s.volume, popts)
+	return vol, err
 }
 
 func (s *cloud) GetVolume(volumeID string) (*objects.Volume, error) {
-	opts := lVol.NewGetOpts(s.extraInfo.ProjectID, volumeID)
+	opts := lvolV2.NewGetOpts(s.extraInfo.ProjectID, volumeID)
 	mc := metrics.NewMetricContext("volume", "get")
-	result, err := lVol.Get(s.volume, opts)
+	result, err := lvolV2.Get(s.volume, opts)
 	if mc.ObserveRequest(err) != nil {
 		return nil, err
 	}
@@ -162,7 +145,7 @@ func (s *cloud) DeleteVolume(volID string) error {
 	}
 
 	mc := metrics.NewMetricContext("volume", "delete")
-	err = lVol.Delete(s.volume, lVol.NewDeleteOpts(s.extraInfo.ProjectID, volID))
+	err = lvolV2.Delete(s.volume, lvolV2.NewDeleteOpts(s.extraInfo.ProjectID, volID))
 	return mc.ObserveRequest(err)
 }
 
@@ -356,6 +339,5 @@ func (s *cloud) diskIsAttached(instanceID string, volumeID string) (bool, error)
 // ModifyDiskOptions represents parameters to modify an EBS volume
 type ModifyDiskOptions struct {
 	VolumeType string
-	IOPS       int
-	Throughput int
+	VolumeSize int
 }
