@@ -120,13 +120,13 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	return newCreateVolumeResponse(resp), nil
 }
 
-func (s *controllerService) DeleteVolume(ctx lctx.Context, req *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
-	klog.V(4).InfoS("DeleteVolume: called", "args", *req)
-	if err := validateDeleteVolumeRequest(req); err != nil {
+func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
+	klog.V(4).InfoS("DeleteVolume: called", "args", *preq)
+	if err := validateDeleteVolumeRequest(preq); err != nil {
 		return nil, err
 	}
 
-	volumeID := req.GetVolumeId()
+	volumeID := preq.GetVolumeId()
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volumeID); !ok {
 		msg := fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID)
@@ -142,8 +142,54 @@ func (s *controllerService) DeleteVolume(ctx lctx.Context, req *lcsi.DeleteVolum
 
 	return &lcsi.DeleteVolumeResponse{}, nil
 }
-func (s *controllerService) ControllerPublishVolume(ctx lctx.Context, req *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
-	return nil, nil
+
+func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
+	klog.V(4).InfoS("ControllerPublishVolume: called", "args", *preq)
+	if err = validateControllerPublishVolumeRequest(preq); err != nil {
+		klog.Errorf("ControllerPublishVolume: invalid request: %v", err)
+		return nil, err
+	}
+
+	volumeID := preq.GetVolumeId()
+	nodeID := preq.GetNodeId()
+
+	vol, err1 := s.cloud.GetVolume(volumeID)
+	if err1 != nil {
+		klog.Errorf("ControllerPublishVolume; failed to get volume %s; ERR: %v", volumeID, err1.Error)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get volume; ERR: %v", err1.Error))
+	}
+
+	if !s.inFlight.Insert(volumeID + nodeID) {
+		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+	}
+	defer s.inFlight.Delete(volumeID + nodeID)
+
+	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
+	_, err = s.cloud.AttachVolume(nodeID, volumeID)
+	if err != nil {
+		if vol != nil && vol.Status == cloud.VolumeInUseStatus {
+			klog.V(4).Infof("ControllerPublishVolume; volume %s attached to instance %s successfully", volumeID, nodeID)
+			return &lcsi.ControllerPublishVolumeResponse{}, nil
+		}
+
+		klog.Errorf("ControllerPublishVolume; failed to attach volume %s to instance %s; ERR: %v", volumeID, nodeID, err)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to attach volume; ERR: %v", err))
+	}
+
+	err = s.cloud.WaitDiskAttached(nodeID, volumeID)
+	if err != nil {
+		klog.Errorf("ControllerPublishVolume; failed to wait disk attached to instance %s; ERR: %v", nodeID, err)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to wait disk attached; ERR: %v", err))
+	}
+
+	_, err = s.cloud.GetAttachmentDiskPath(nodeID, volumeID)
+	if err != nil {
+		klog.Errorf("ControllerPublishVolume; failed to get device path for volume %s; ERR: %v", volumeID, err)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get device path; ERR: %v", err))
+	}
+
+	klog.V(4).Infof("ControllerPublishVolume; volume %s attached to instance %s successfully", volumeID, nodeID)
+	return &lcsi.ControllerPublishVolumeResponse{}, nil
 }
 
 func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {

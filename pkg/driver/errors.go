@@ -13,4 +13,5 @@ var (
 	ErrParsingVolumeSize              = lstt.Errorf(lcodes.InvalidArgument, "Could not parse volume size")
 	ErrModifyMutableParam             = lstt.Errorf(lcodes.InvalidArgument, "Invalid mutable parameters")
 	ErrVolumeIDNotProvided            = lstt.Errorf(lcodes.InvalidArgument, "Volume ID not provided")
+	ErrNodeIdNotProvided              = lstt.Error(lcodes.InvalidArgument, "Node ID not provided")
 )

@@ -160,11 +160,10 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 		return "", fmt.Errorf("volume %s already attached to instance %s", volumeID, *vol.VmId)
 	}
 
-	mc := metrics.NewMetricContext("volume", "attach")
 	opts := lVolAtch.NewCreateOpts(s.extraInfo.ProjectID, instanceID, volumeID)
-	_, err2 := lVolAtch.Create(s.compute, opts)
+	_, err2 := lVolAtch.Attach(s.compute, opts)
 
-	if mc.ObserveRequest(err2) != nil {
+	if err2 != nil {
 		return "", err2
 	}
 
@@ -204,9 +203,9 @@ func (s *cloud) GetAttachmentDiskPath(instanceID, volumeID string) (string, erro
 		return "", fmt.Errorf("volume %s not is in use", volumeID)
 	}
 
-	//if volume.VmId == nil || *volume.VmId != instanceID {
-	//	return "", fmt.Errorf("volume %s is not attached to instance %s", volumeID, instanceID)
-	//}
+	if volume.VmId == nil || *volume.VmId != instanceID {
+		return "", fmt.Errorf("volume %s is not attached to instance %s", volumeID, instanceID)
+	}
 
 	return "", nil
 }

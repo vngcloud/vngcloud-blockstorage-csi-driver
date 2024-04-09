@@ -122,3 +122,23 @@ func validateDeleteVolumeRequest(req *lcsi.DeleteVolumeRequest) error {
 	}
 	return nil
 }
+
+func validateControllerPublishVolumeRequest(preq *lcsi.ControllerPublishVolumeRequest) error {
+	if len(preq.GetVolumeId()) == 0 {
+		return ErrVolumeIDNotProvided
+	}
+
+	if len(preq.GetNodeId()) == 0 {
+		return ErrNodeIdNotProvided
+	}
+
+	volCap := preq.GetVolumeCapability()
+	if volCap == nil {
+		return ErrVolumeCapabilitiesNotProvided
+	}
+
+	if !isValidCapability(volCap) {
+		return ErrVolumeCapabilitiesNotSupported
+	}
+	return nil
+}
