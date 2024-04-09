@@ -115,3 +115,10 @@ func parseModifyVolumeParameters(params map[string]string) (*cloud.ModifyDiskOpt
 
 	return &options, nil
 }
+
+func validateDeleteVolumeRequest(req *lcsi.DeleteVolumeRequest) error {
+	if len(req.GetVolumeId()) < 1 {
+		return ErrVolumeIDNotProvided
+	}
+	return nil
+}

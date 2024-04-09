@@ -3,6 +3,7 @@ package cloud
 import (
 	"errors"
 	"fmt"
+	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
 	"strings"
 	"time"
 
@@ -129,36 +130,25 @@ func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*objects.Volume, error) 
 	return vol, err
 }
 
-func (s *cloud) GetVolume(volumeID string) (*objects.Volume, error) {
+func (s *cloud) GetVolume(volumeID string) (*objects.Volume, *lsdkErr.SdkError) {
 	opts := lvolV2.NewGetOpts(s.extraInfo.ProjectID, volumeID)
-	mc := metrics.NewMetricContext("volume", "get")
 	result, err := lvolV2.Get(s.volume, opts)
-	if mc.ObserveRequest(err) != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return result, err
 }
 
 func (s *cloud) DeleteVolume(volID string) error {
-	used, err := s.diskIsUsed(volID)
-	if err != nil {
-		return err
-	}
-
+	used := s.diskIsUsed(volID)
 	if used {
 		return fmt.Errorf("cannot delete the volume %q, it's still attached to a node", volID)
 	}
 
-	mc := metrics.NewMetricContext("volume", "delete")
-	err = lvolV2.Delete(s.volume, lvolV2.NewDeleteOpts(s.extraInfo.ProjectID, volID))
-	return mc.ObserveRequest(err)
+	return lvolV2.Delete(s.volume, lvolV2.NewDeleteOpts(s.extraInfo.ProjectID, volID))
 }
 
 func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 	vol, err := s.GetVolume(volumeID)
 	if err != nil {
-		return "", err
+		return "", err.Error
 	}
 
 	if vol == nil {
@@ -171,10 +161,10 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 
 	mc := metrics.NewMetricContext("volume", "attach")
 	opts := lVolAtch.NewCreateOpts(s.extraInfo.ProjectID, instanceID, volumeID)
-	_, err = lVolAtch.Create(s.compute, opts)
+	_, err2 := lVolAtch.Create(s.compute, opts)
 
-	if mc.ObserveRequest(err) != nil {
-		return "", err
+	if mc.ObserveRequest(err2) != nil {
+		return "", err2
 	}
 
 	return vol.VolumeId, nil
@@ -206,7 +196,7 @@ func (s *cloud) WaitDiskAttached(instanceID string, volumeID string) error {
 func (s *cloud) GetAttachmentDiskPath(instanceID, volumeID string) (string, error) {
 	volume, err := s.GetVolume(volumeID)
 	if err != nil {
-		return "", err
+		return "", err.Error
 	}
 
 	if volume.Status != VolumeInUseStatus {
@@ -223,7 +213,7 @@ func (s *cloud) GetAttachmentDiskPath(instanceID, volumeID string) (string, erro
 func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 	volume, err := s.GetVolume(volumeID)
 	if err != nil {
-		return err
+		return err.Error
 	}
 
 	if volume == nil {
@@ -235,10 +225,10 @@ func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 	}
 
 	mc := metrics.NewMetricContext("volume", "detach")
-	_, err = lVolAtch.Delete(s.compute, lVolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
+	_, err2 := lVolAtch.Delete(s.compute, lVolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
 
-	if mc.ObserveRequest(err) != nil {
-		return err
+	if mc.ObserveRequest(err2) != nil {
+		return err2
 	}
 
 	// Disk has no attachments or not attached to the provided compute
@@ -289,7 +279,7 @@ func (s *cloud) WaitVolumeTargetStatus(volumeID string, tStatus []string) error 
 	waitErr := wait.ExponentialBackoff(backoff, func() (bool, error) {
 		vol, err := s.GetVolume(volumeID)
 		if err != nil {
-			return false, err
+			return false, err.Error
 		}
 
 		if vol == nil {
@@ -316,23 +306,23 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 	return 0, nil
 }
 
-func (s *cloud) diskIsUsed(volumeID string) (bool, error) {
+func (s *cloud) diskIsUsed(volumeID string) bool {
 	vol, err := s.GetVolume(volumeID)
-	if err != nil || vol == nil {
-		return false, err
+	if err != nil && err.Code == lvolV2.ErrVolumeNotFound {
+		return false
 	}
 
-	if vol.VmId != nil {
-		return true, nil
+	if vol != nil && vol.Status == VolumeAvailableStatus {
+		return false
 	}
 
-	return false, nil
+	return true
 }
 
 func (s *cloud) diskIsAttached(instanceID string, volumeID string) (bool, error) {
 	vol, err := s.GetVolume(volumeID)
 	if err != nil || vol == nil {
-		return false, err
+		return false, err.Error
 	}
 
 	if strings.ToUpper(vol.Status) != VolumeInUseStatus {

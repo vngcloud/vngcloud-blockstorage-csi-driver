@@ -121,7 +121,26 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 }
 
 func (s *controllerService) DeleteVolume(ctx lctx.Context, req *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
-	return nil, nil
+	klog.V(4).InfoS("DeleteVolume: called", "args", *req)
+	if err := validateDeleteVolumeRequest(req); err != nil {
+		return nil, err
+	}
+
+	volumeID := req.GetVolumeId()
+	// check if a request is already in-flight
+	if ok := s.inFlight.Insert(volumeID); !ok {
+		msg := fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID)
+		return nil, status.Error(codes.Aborted, msg)
+	}
+	defer s.inFlight.Delete(volumeID)
+
+	if err := s.cloud.DeleteVolume(volumeID); err != nil {
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "Could not delete volume ID %q: %v", volumeID, err)
+		}
+	}
+
+	return &lcsi.DeleteVolumeResponse{}, nil
 }
 func (s *controllerService) ControllerPublishVolume(ctx lctx.Context, req *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
 	return nil, nil

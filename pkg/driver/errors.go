@@ -12,4 +12,5 @@ var (
 	ErrVolumeSizeExceedLimit          = lstt.Error(lcodes.InvalidArgument, "After round-up, volume size exceeds the limit specified")
 	ErrParsingVolumeSize              = lstt.Errorf(lcodes.InvalidArgument, "Could not parse volume size")
 	ErrModifyMutableParam             = lstt.Errorf(lcodes.InvalidArgument, "Invalid mutable parameters")
+	ErrVolumeIDNotProvided            = lstt.Errorf(lcodes.InvalidArgument, "Volume ID not provided")
 )
