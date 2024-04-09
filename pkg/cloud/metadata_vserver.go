@@ -80,7 +80,7 @@ func VServerMetadataInstanceInfo(psvc IVServerMetadata) (MetadataService, error)
 	metadataCache = &Metadata{}
 	metadataCache.UUID = instanceInfo.Meta.PortalUUID
 	metadataCache.Name = instanceInfo.Name
-	metadataCache.ProjectID = instanceInfo.Meta.ProjectID
+	metadataCache.ProjectID = instanceInfo.ProjectID
 	metadataCache.AvailabilityZone = instanceInfo.AvailabilityZone
 
 	return metadataCache, nil

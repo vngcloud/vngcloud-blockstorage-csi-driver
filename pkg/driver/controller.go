@@ -13,6 +13,7 @@ import (
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
 var (
@@ -84,12 +85,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 
 	// Validate volume size, if volume size is less than the default volume size of cloud provider,
 	// set it to the default volume size
-	volSizeBytes, err := getVolSizeBytes(preq)
-	if err != nil {
-		klog.Errorf("CreateVolume: invalid request: %v", err)
-		return nil, err
-	}
-
+	volSizeBytes := getVolSizeBytes(preq)
 	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
 	volCap := preq.GetVolumeCapabilities() // get volume capabilities
 	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
@@ -101,7 +97,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	}
 	defer s.inFlight.Delete(volName)
 
-	_, err = parseModifyVolumeParameters(preq.GetMutableParameters())
+	_, err := parseModifyVolumeParameters(preq.GetMutableParameters())
 	if err != nil {
 		klog.Errorf("CreateVolume: invalid request: %v", err)
 		return nil, ErrModifyMutableParam
@@ -110,9 +106,10 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	reqOpts := new(lvolV2.CreateOpts)
 	reqOpts.Name = volName
 	reqOpts.MultiAttach = multiAttach
-	reqOpts.Size = uint64(volSizeBytes)
+	reqOpts.Size = uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024))
 	reqOpts.VolumeTypeId = preq.GetParameters()["type"]
 	reqOpts.IsPoc = false
+	reqOpts.CreatedFrom = cloud.CreateFromNew
 
 	resp, err := s.cloud.CreateVolume(reqOpts)
 	if err != nil {

@@ -41,6 +41,14 @@ func RoundUpBytes(volumeSizeBytes int64) int64 {
 	return roundUpSize(volumeSizeBytes, GiB) * GiB
 }
 
+func RoundUpSize(volumeSizeBytes int64, allocationUnitBytes int64) int64 {
+	roundedUp := volumeSizeBytes / allocationUnitBytes
+	if volumeSizeBytes%allocationUnitBytes > 0 {
+		roundedUp++
+	}
+	return roundedUp
+}
+
 // TODO: check division by zero and int overflow
 func roundUpSize(volumeSizeBytes int64, allocationUnitBytes int64) int64 {
 	return (volumeSizeBytes + allocationUnitBytes - 1) / allocationUnitBytes

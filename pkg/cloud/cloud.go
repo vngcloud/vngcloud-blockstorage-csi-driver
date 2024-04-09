@@ -3,6 +3,9 @@ package cloud
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/cuongpiger/joat/utils"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
@@ -10,16 +13,14 @@ import (
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
-
 	lVolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	lVolAtch "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/compute/v2/extensions/volume_attach"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/extensions/oauth2"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/tokens"
+	lPortal "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/portal/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	"strings"
-	"time"
 )
 
 // Defaults
@@ -59,12 +60,17 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 	compute, _ := vngcloud.NewServiceClient(vserverV2, pc, "compute")
 	volume, _ := vngcloud.NewServiceClient(vserverV2, pc, "volume")
 	portal, _ := vngcloud.NewServiceClient(vserverV1, pc, "portal")
+	ei, err := setupPortalInfo(portal, metadataSvc)
+	if err != nil {
+		return nil, err
+	}
 
 	return &cloud{
 		compute:         compute,
 		volume:          volume,
 		portal:          portal,
 		metadataService: metadataSvc,
+		extraInfo:       ei,
 	}, nil
 }
 
@@ -118,8 +124,8 @@ func (s *cloud) GetVolumesByName(name string) ([]*objects.Volume, error) {
 }
 
 func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*objects.Volume, error) {
-	popts.CreatedFrom = CreateFromNew
-	vol, err := lvolV2.Create(s.volume, popts)
+	opts := lvolV2.NewCreateOpts(s.extraInfo.ProjectID, popts)
+	vol, err := lvolV2.Create(s.volume, opts)
 	return vol, err
 }
 
@@ -334,6 +340,29 @@ func (s *cloud) diskIsAttached(instanceID string, volumeID string) (bool, error)
 	}
 
 	return true, nil
+}
+
+func setupPortalInfo(pportalClient *client.ServiceClient, pmetadataSvc MetadataService) (*extraInfa, error) {
+	projectID := pmetadataSvc.GetProjectID()
+	if len(projectID) < 1 {
+		return nil, fmt.Errorf("projectID is empty")
+	}
+
+	klog.InfoS("setupPortalInfo", "projectID", projectID)
+
+	portalInfo, err := lPortal.Get(pportalClient, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if portalInfo == nil {
+		return nil, fmt.Errorf("can not get portal information")
+	}
+
+	return &extraInfa{
+		ProjectID: portalInfo.ProjectID,
+		UserID:    portalInfo.UserID,
+	}, nil
 }
 
 // ModifyDiskOptions represents parameters to modify an EBS volume
