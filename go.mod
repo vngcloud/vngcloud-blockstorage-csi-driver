@@ -4,7 +4,7 @@ go 1.21.6
 
 require (
 	github.com/container-storage-interface/spec v1.9.0
-	github.com/cuongpiger/joat v0.0.4
+	github.com/cuongpiger/joat v0.0.6
 	github.com/spf13/pflag v1.0.5
 	github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0
 	github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240409082207-44d22cfcac77

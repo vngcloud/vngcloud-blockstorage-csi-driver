@@ -16,8 +16,8 @@ github.com/container-storage-interface/spec v1.9.0 h1:zKtX4STsq31Knz3gciCYCi1SXt
 github.com/container-storage-interface/spec v1.9.0/go.mod h1:ZfDu+3ZRyeVqxZM0Ds19MVLkN2d1XJ5MAfi1L3VjlT0=
 github.com/cpuguy83/go-md2man/v2 v2.0.2/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
-github.com/cuongpiger/joat v0.0.4 h1:HsFks8xndCiefrCjOeYSb9mAkHEoaWuua3XCnV8G8gs=
-github.com/cuongpiger/joat v0.0.4/go.mod h1:Tk6uoQureTVrFS6/M2Hdh1VKhQRp6KMHUrHnOIWQWQU=
+github.com/cuongpiger/joat v0.0.6 h1:DVRNz7KsdiBQ7eAV1B00GdQWzZ6iZu9kssEP2KqVSQM=
+github.com/cuongpiger/joat v0.0.6/go.mod h1:Tk6uoQureTVrFS6/M2Hdh1VKhQRp6KMHUrHnOIWQWQU=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

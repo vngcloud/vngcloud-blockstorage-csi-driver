@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"os"
 	"time"
 
@@ -28,6 +30,20 @@ var (
 		Duration: 500 * time.Millisecond,
 		Factor:   2,
 		Steps:    10, // Max delay = 0.5 * 2^9 = ~4 minutes
+	}
+)
+
+const (
+	defaultFsType = FSTypeExt4
+)
+
+var (
+	ValidFSTypes = map[string]struct{}{
+		FSTypeExt2: {},
+		FSTypeExt3: {},
+		FSTypeExt4: {},
+		FSTypeXfs:  {},
+		FSTypeNtfs: {},
 	}
 )
 
@@ -160,7 +176,42 @@ func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
 }
 
 func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVolumeRequest) (*lcsi.NodeStageVolumeResponse, error) {
-	return &lcsi.NodeStageVolumeResponse{}, nil
+	klog.V(4).InfoS("NodeStageVolume: called", "args", *req)
+
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, ErrVolumeIDNotProvided
+	}
+
+	target := req.GetStagingTargetPath()
+	if len(target) == 0 {
+		return nil, ErrStagingTargetPathNotProvided
+	}
+
+	volCap := req.GetVolumeCapability()
+	if volCap == nil {
+		return nil, ErrVolumeCapabilitiesNotProvided
+	}
+
+	if !isValidVolumeCapabilities([]*lcsi.VolumeCapability{volCap}) {
+		return nil, ErrVolumeCapabilitiesNotSupported
+	}
+
+	// If the access type is block, do nothing for stage
+	switch volCap.GetAccessType().(type) {
+	case *lcsi.VolumeCapability_Block:
+		return &lcsi.NodeStageVolumeResponse{}, nil
+	}
+
+	mountVolume := volCap.GetMount()
+	if mountVolume == nil {
+		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume: mount is nil within volume capability")
+	}
+
+	fsType := mountVolume.GetFsType()
+	if len(fsType) == 0 {
+		fsType = defaultFsType
+	}
 }
 
 func (s *nodeService) NodeUnstageVolume(ctx context.Context, req *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {

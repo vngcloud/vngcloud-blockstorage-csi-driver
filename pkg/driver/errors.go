@@ -14,4 +14,5 @@ var (
 	ErrModifyMutableParam             = lstt.Errorf(lcodes.InvalidArgument, "Invalid mutable parameters")
 	ErrVolumeIDNotProvided            = lstt.Errorf(lcodes.InvalidArgument, "Volume ID not provided")
 	ErrNodeIdNotProvided              = lstt.Error(lcodes.InvalidArgument, "Node ID not provided")
+	ErrStagingTargetPathNotProvided   = lstt.Error(lcodes.InvalidArgument, "Staging target not provided")
 )

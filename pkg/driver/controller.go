@@ -4,12 +4,15 @@ import (
 	lctx "context"
 	"fmt"
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	ljoat "github.com/cuongpiger/joat/parser"
+	ldto "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/dto"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
+	"strings"
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
@@ -103,11 +106,56 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		return nil, ErrModifyMutableParam
 	}
 
+	cvr := ldto.NewCreateVolumeRequest()
+	parser, _ := ljoat.GetParser()
+	for pk, pv := range preq.GetParameters() {
+		switch strings.ToLower(pk) {
+		case VolumeTypeKey:
+			cvr = cvr.WithVolumeTypeID(pv)
+		case EncryptedKey:
+			cvr = cvr.WithEncrypted(pv)
+		case PVCNameKey:
+			cvr = cvr.WithPvcNameTag(pv)
+		case PVCNamespaceKey:
+			cvr = cvr.WithPvcNamespaceTag(pv)
+		case PVNameKey:
+			cvr = cvr.WithPvNameTag(pv)
+		case BlockSizeKey:
+			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse blockSize (%s): %v", pv, err)
+			}
+			cvr = cvr.WithBlockSize(pv)
+		case InodeSizeKey:
+			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse inodeSize (%s): %v", pv, err)
+			}
+			cvr = cvr.WithInodeSize(pv)
+		case BytesPerInodeKey:
+			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse bytesPerInode (%s): %v", pv, err)
+			}
+			cvr = cvr.WithBytesPerInode(pv)
+		case NumberOfInodesKey:
+			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse numberOfInodes (%s): %v", pv, err)
+			}
+			cvr = cvr.WithNumberOfInodes(pv)
+		case Ext4ClusterSizeKey:
+			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse ext4ClusterSize (%s): %v", pv, err)
+			}
+			cvr = cvr.WithExt4ClusterSize(pv)
+		case Ext4BigAllocKey:
+			cvr = cvr.WithExt4BigAlloc(pv == "true")
+		}
+	}
+
+	cvr = cvr.WithVolumeName(volName).
+		WithMultiAttach(multiAttach).
+		WithVolumeSize(uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024)))
 	reqOpts := new(lvolV2.CreateOpts)
 	reqOpts.Name = volName
 	reqOpts.MultiAttach = multiAttach
-	reqOpts.Size = uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024))
-	reqOpts.VolumeTypeId = preq.GetParameters()["type"]
 	reqOpts.IsPoc = false
 	reqOpts.CreatedFrom = cloud.CreateFromNew
 

@@ -49,6 +49,7 @@ type DriverOptions struct {
 	identityURL                       string
 	vServerURL                        string
 	batching                          bool
+	clusterID                         string
 }
 
 func NewDriver(options ...func(*DriverOptions)) (*Driver, error) {
@@ -129,6 +130,12 @@ func WithClientSecret(clientSecret string) func(*DriverOptions) {
 func WithIdentityURL(identityURL string) func(*DriverOptions) {
 	return func(o *DriverOptions) {
 		o.identityURL = identityURL
+	}
+}
+
+func WithClusterID(pclusterID string) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.clusterID = pclusterID
 	}
 }
 
