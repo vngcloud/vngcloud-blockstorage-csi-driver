@@ -3,19 +3,20 @@ package driver
 import (
 	lctx "context"
 	"fmt"
+	lstr "strings"
+
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	ljoat "github.com/cuongpiger/joat/parser"
-	ldto "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/dto"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
-	"strings"
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	ldto "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/dto"
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
@@ -100,16 +101,10 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	}
 	defer s.inFlight.Delete(volName)
 
-	_, err := parseModifyVolumeParameters(preq.GetMutableParameters())
-	if err != nil {
-		klog.Errorf("CreateVolume: invalid request: %v", err)
-		return nil, ErrModifyMutableParam
-	}
-
 	cvr := ldto.NewCreateVolumeRequest()
 	parser, _ := ljoat.GetParser()
 	for pk, pv := range preq.GetParameters() {
-		switch strings.ToLower(pk) {
+		switch lstr.ToLower(pk) {
 		case VolumeTypeKey:
 			cvr = cvr.WithVolumeTypeID(pv)
 		case EncryptedKey:
@@ -122,40 +117,60 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 			cvr = cvr.WithPvNameTag(pv)
 		case BlockSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse blockSize (%s): %v", pv, err)
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse blockSize (%s)", pv)
 			}
 			cvr = cvr.WithBlockSize(pv)
 		case InodeSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse inodeSize (%s): %v", pv, err)
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse inodeSize (%s)", pv)
 			}
 			cvr = cvr.WithInodeSize(pv)
 		case BytesPerInodeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse bytesPerInode (%s): %v", pv, err)
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse bytesPerInode (%s)", pv)
 			}
 			cvr = cvr.WithBytesPerInode(pv)
 		case NumberOfInodesKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse numberOfInodes (%s): %v", pv, err)
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse numberOfInodes (%s)", pv)
 			}
 			cvr = cvr.WithNumberOfInodes(pv)
 		case Ext4ClusterSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse ext4ClusterSize (%s): %v", pv, err)
+				return nil, status.Errorf(codes.InvalidArgument, "Could not parse ext4ClusterSize (%s)", pv)
 			}
 			cvr = cvr.WithExt4ClusterSize(pv)
 		case Ext4BigAllocKey:
 			cvr = cvr.WithExt4BigAlloc(pv == "true")
+		case IsPoc:
+			cvr = cvr.WithPoc(pv == "true")
 		}
+	}
+
+	modifyOpts, err := parseModifyVolumeParameters(preq.GetMutableParameters())
+	if err != nil {
+		klog.Errorf("CreateVolume: invalid request: %v", err)
+		return nil, ErrModifyMutableParam
+	}
+
+	volumeSource := preq.GetVolumeContentSource()
+	if volumeSource != nil {
+		if _, ok := volumeSource.GetType().(*lcsi.VolumeContentSource_Snapshot); !ok {
+			return nil, ErrVolumeContentSourceNotSupported
+		}
+		sourceSnapshot := volumeSource.GetSnapshot()
+		if sourceSnapshot == nil {
+			return nil, ErrSnapshotIsNil
+		}
+		cvr = cvr.WithSnapshotID(sourceSnapshot.GetSnapshotId())
 	}
 
 	cvr = cvr.WithVolumeName(volName).
 		WithMultiAttach(multiAttach).
-		WithVolumeSize(uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024)))
+		WithVolumeSize(uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024))).
+		WithVolumeTypeID(modifyOpts.VolumeType)
+
 	reqOpts := new(lvolV2.CreateOpts)
-	reqOpts.Name = volName
-	reqOpts.MultiAttach = multiAttach
 	reqOpts.IsPoc = false
 	reqOpts.CreatedFrom = cloud.CreateFromNew
 
@@ -412,8 +427,6 @@ func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesReques
 
 const (
 	ModificationKeyVolumeType = "volumeType"
-
-	ModificationVolumeSize = "volumeSize"
 )
 
 func newCreateVolumeResponse(disk *lsdkObj.Volume) *lcsi.CreateVolumeResponse {

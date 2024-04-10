@@ -60,4 +60,7 @@ const (
 
 	// Ext4ClusterSizeKey configures the cluster size when formatting an ext4 volume with the bigalloc option enabled
 	Ext4ClusterSizeKey = "ext4clustersize"
+
+	// IsPoc is a key to determine if the volume is a POC volume
+	IsPoc = "ispoc"
 )

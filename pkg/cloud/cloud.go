@@ -358,5 +358,4 @@ func setupPortalInfo(pportalClient *client.ServiceClient, pmetadataSvc MetadataS
 // ModifyDiskOptions represents parameters to modify an EBS volume
 type ModifyDiskOptions struct {
 	VolumeType string
-	VolumeSize int
 }

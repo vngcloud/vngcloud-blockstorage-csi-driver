@@ -6,7 +6,6 @@ import (
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"k8s.io/klog/v2"
-	"strconv"
 )
 
 func ValidateDriverOptions(options *DriverOptions) error {
@@ -102,12 +101,6 @@ func parseModifyVolumeParameters(params map[string]string) (*cloud.ModifyDiskOpt
 
 	for key, value := range params {
 		switch key {
-		case ModificationVolumeSize:
-			volumeSize, err := strconv.Atoi(value)
-			if err != nil {
-				return nil, ErrParsingVolumeSize
-			}
-			options.VolumeSize = volumeSize
 		case ModificationKeyVolumeType:
 			options.VolumeType = value
 		}

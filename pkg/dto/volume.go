@@ -15,6 +15,8 @@ type CreateVolumeRequest struct {
 	PvcNameTag         string // the name of the PVC on the PVC's Annotation
 	PvcNamespaceTag    string // the namespace of the PVC on the PVC's Annotation
 	PvNameTag          string // the name of the PV on the PVC's Annotation
+	IsPoc              bool   // whether the volume is a PoC volume
+	SnapshotID         string // the ID of the snapshot to create the volume from
 
 	// The scope of mount commands
 	BlockSize       string
@@ -42,6 +44,10 @@ func (s *CreateVolumeRequest) WithClusterID(pclusterID string) *CreateVolumeRequ
 }
 
 func (s *CreateVolumeRequest) WithVolumeTypeID(pvolumeTypeID string) *CreateVolumeRequest {
+	if pvolumeTypeID == "" {
+		return s
+	}
+
 	s.VolumeTypeID = pvolumeTypeID
 	return s
 }
@@ -101,8 +107,18 @@ func (s *CreateVolumeRequest) WithExt4BigAlloc(pext4BigAlloc bool) *CreateVolume
 	return s
 }
 
+func (s *CreateVolumeRequest) WithPoc(pisPoc bool) *CreateVolumeRequest {
+	s.IsPoc = pisPoc
+	return s
+}
+
 func (s *CreateVolumeRequest) WithExt4ClusterSize(pext4ClusterSize string) *CreateVolumeRequest {
 	s.Ext4ClusterSize = pext4ClusterSize
+	return s
+}
+
+func (s *CreateVolumeRequest) WithSnapshotID(psnapshotID string) *CreateVolumeRequest {
+	s.SnapshotID = psnapshotID
 	return s
 }
 
