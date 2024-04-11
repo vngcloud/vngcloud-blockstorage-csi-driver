@@ -360,7 +360,53 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 	return &lcsi.NodeStageVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeUnstageVolume(ctx context.Context, req *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
+func (s *nodeService) NodeUnstageVolume(ctx context.Context, preq *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
+	klog.V(4).InfoS("NodeUnstageVolume: called", "args", *preq)
+	volumeID := preq.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	target := preq.GetStagingTargetPath()
+	if len(target) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
+	}
+
+	if ok := s.inFlight.Insert(volumeID); !ok {
+		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExists, volumeID)
+	}
+	defer func() {
+		klog.V(4).InfoS("NodeUnStageVolume: volume operation finished", "volumeID", volumeID)
+		s.inFlight.Delete(volumeID)
+	}()
+
+	// Check if target directory is a mount point. GetDeviceNameFromMount
+	// given a mnt point, finds the device from /proc/mounts
+	// returns the device name, reference count, and error code
+	dev, refCount, err := s.mounter.GetDeviceNameFromMount(target)
+	if err != nil {
+		msg := fmt.Sprintf("failed to check if target %q is a mount point: %v", target, err)
+		return nil, status.Error(codes.Internal, msg)
+	}
+
+	// From the spec: If the volume corresponding to the volume_id
+	// is not staged to the staging_target_path, the Plugin MUST
+	// reply 0 OK.
+	if refCount == 0 {
+		klog.V(5).InfoS("[Debug] NodeUnstageVolume: target not mounted", "target", target)
+		return &lcsi.NodeUnstageVolumeResponse{}, nil
+	}
+
+	if refCount > 1 {
+		klog.InfoS("NodeUnstageVolume: found references to device mounted at target path", "refCount", refCount, "device", dev, "target", target)
+	}
+
+	klog.V(4).InfoS("NodeUnstageVolume: unmounting", "target", target)
+	err = s.mounter.Unstage(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not unmount target %q: %v", target, err)
+	}
+	klog.V(4).InfoS("NodeUnStageVolume: successfully unstaged volume", "volumeID", volumeID, "target", target)
 	return &lcsi.NodeUnstageVolumeResponse{}, nil
 }
 

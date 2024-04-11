@@ -26,6 +26,7 @@ type Mounter interface {
 	IsCorruptedMnt(err error) bool
 	Unpublish(path string) error
 	GetDevicePathBySerialID(pvolId string) (string, error)
+	Unstage(path string) error
 }
 
 type DeviceIdentifier interface {
