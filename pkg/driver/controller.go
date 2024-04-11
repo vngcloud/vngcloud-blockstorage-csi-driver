@@ -51,7 +51,7 @@ type controllerService struct {
 func newControllerService(driverOptions *DriverOptions) controllerService {
 	metadata, err := NewMetadataFunc(cloud.DefaultVServerMetadataClient)
 	if err != nil {
-		klog.ErrorS(err, "Could not determine region from any metadata service. The region can be manually supplied via the AWS_REGION environment variable.")
+		klog.ErrorS(err, "Could not determine the metadata information for the driver")
 		panic(err)
 	}
 

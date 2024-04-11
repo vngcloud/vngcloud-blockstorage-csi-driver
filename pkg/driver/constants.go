@@ -1,13 +1,14 @@
 package driver
 
 import (
+	ltime "time"
+
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
-	"time"
 )
 
 const (
 	DefaultCSIEndpoint                       = "unix://tmp/csi.sock"
-	DefaultModifyVolumeRequestHandlerTimeout = 2 * time.Second
+	DefaultModifyVolumeRequestHandlerTimeout = 30 * ltime.Second
 	AgentNotReadyNodeTaintKey                = "bs.csi.vngcloud.vn/agent-not-ready"
 )
 
