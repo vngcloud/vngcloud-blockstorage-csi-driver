@@ -3,17 +3,17 @@ package cloud
 import (
 	"errors"
 	"fmt"
-	ljoat "github.com/cuongpiger/joat/string"
 	"strings"
 	"time"
 
+	ljoat "github.com/cuongpiger/joat/string"
 	"github.com/cuongpiger/joat/utils"
 	"github.com/vngcloud/vngcloud-go-sdk/client"
 	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
-	lVolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
+	lvolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	lVolAtch "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/compute/v2/extensions/volume_attach"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/extensions/oauth2"
@@ -218,23 +218,6 @@ func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 	return err
 }
 
-func (s *cloud) GetAttachmentDiskPath(instanceID, volumeID string) (string, error) {
-	volume, err := s.GetVolume(volumeID)
-	if err != nil {
-		return "", err.Error
-	}
-
-	if volume.Status != VolumeInUseStatus {
-		return "", fmt.Errorf("volume %s not is in use", volumeID)
-	}
-
-	if volume.VmId == nil || *volume.VmId != instanceID {
-		return "", fmt.Errorf("volume %s is not attached to instance %s", volumeID, instanceID)
-	}
-
-	return "", nil
-}
-
 func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 	volume, err := s.GetVolume(volumeID)
 	if err != nil {
@@ -284,9 +267,9 @@ func (s *cloud) WaitDiskDetached(instanceID string, volumeID string) error {
 }
 
 func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error {
-	opts := lVolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
+	opts := lvolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
 	mc := metrics.NewMetricContext("volume", "extend")
-	_, err := lVolAct.Resize(s.volume, opts)
+	_, err := lvolAct.Resize(s.volume, opts)
 	if mc.ObserveRequest(err) != nil {
 		return err
 	}
@@ -386,8 +369,8 @@ type ModifyDiskOptions struct {
 }
 
 func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
-	opts := lVolAct.NewMappingOpts(s.extraInfo.ProjectID, pvolID)
-	res, err := lVolAct.GetMappingVolume(s.volume, opts)
+	opts := lvolAct.NewMappingOpts(s.extraInfo.ProjectID, pvolID)
+	res, err := lvolAct.GetMappingVolume(s.volume, opts)
 
 	// Process error occurs
 	if err != nil {

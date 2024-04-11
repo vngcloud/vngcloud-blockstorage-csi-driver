@@ -26,12 +26,6 @@ var (
 	NewCloudFunc    = cloud.NewCloud
 )
 
-// Supported access modes
-const (
-	SingleNodeWriter     = lcsi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
-	MultiNodeMultiWriter = lcsi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
-)
-
 var (
 	// controllerCaps represents the capability of controller service
 	controllerCaps = []lcsi.ControllerServiceCapability_RPC_Type{
@@ -206,7 +200,7 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 }
 
 func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
-	klog.V(4).InfoS("ControllerPublishVolume: called", "args", *preq)
+	klog.V(5).InfoS("ControllerPublishVolume: called", "args", *preq)
 	if err = validateControllerPublishVolumeRequest(preq); err != nil {
 		klog.Errorf("ControllerPublishVolume: invalid request: %v", err)
 		return nil, err
@@ -215,32 +209,29 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	volumeID := preq.GetVolumeId() // get the cloud volume ID
 	nodeID := preq.GetNodeId()     // get the cloud node ID
 
+	// Make sure there are no 2 operations on the same volume and node at the same time
 	if !s.inFlight.Insert(volumeID + nodeID) {
 		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 
 	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
+
+	// Attach the volume and wait for it to be attached
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)
 	if err != nil {
 		klog.Errorf("ControllerPublishVolume; failed to attach volume %s to instance %s; ERR: %v", volumeID, nodeID, err)
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to attach volume; ERR: %v", err))
 	}
 
-	err = s.cloud.WaitDiskAttached(nodeID, volumeID)
+	devicePath, err := s.cloud.GetDeviceDiskID(volumeID)
 	if err != nil {
-		klog.Errorf("ControllerPublishVolume; failed to wait disk attached to instance %s; ERR: %v", nodeID, err)
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to wait disk attached; ERR: %v", err))
+		klog.ErrorS(err, "ControllerPublishVolume; failed to get device path for volume %s", volumeID)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get device path for volume; ERR: %v", err))
 	}
 
-	_, err = s.cloud.GetAttachmentDiskPath(nodeID, volumeID)
-	if err != nil {
-		klog.Errorf("ControllerPublishVolume; failed to get device path for volume %s; ERR: %v", volumeID, err)
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get device path; ERR: %v", err))
-	}
-
-	klog.V(4).Infof("ControllerPublishVolume; volume %s attached to instance %s successfully", volumeID, nodeID)
-	return &lcsi.ControllerPublishVolumeResponse{}, nil
+	klog.V(5).InfoS("ControllerPublishVolume; volume %s attached to instance %s successfully", volumeID, nodeID)
+	return newControllerPublishVolumeResponse(devicePath), nil
 }
 
 func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {

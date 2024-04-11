@@ -1,6 +1,9 @@
 package driver
 
-import "time"
+import (
+	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	"time"
+)
 
 const (
 	DefaultCSIEndpoint                       = "unix://tmp/csi.sock"
@@ -91,4 +94,15 @@ var (
 			},
 		},
 	}
+)
+
+const (
+	// DevicePathKey represents key for device path in PublishContext, devicePath is the device path where the volume is attached to
+	DevicePathKey = "devicePath"
+)
+
+// Supported access modes
+const (
+	SingleNodeWriter     = lcsi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
+	MultiNodeMultiWriter = lcsi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
 )

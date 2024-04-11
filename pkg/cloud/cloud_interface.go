@@ -13,7 +13,6 @@ type Cloud interface {
 	DeleteVolume(volID string) error
 	AttachVolume(instanceID, volumeID string) (string, error)
 	WaitDiskAttached(instanceID string, volumeID string) error
-	GetAttachmentDiskPath(instanceID, volumeID string) (string, error)
 	DetachVolume(instanceID, volumeID string) error
 	WaitDiskDetached(instanceID string, volumeID string) error
 	ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error
