@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	ljoat "github.com/cuongpiger/joat/string"
 	"github.com/cuongpiger/joat/utils"
 	"github.com/vngcloud/vngcloud-go-sdk/client"
 	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
@@ -129,6 +128,7 @@ func (s *cloud) GetVolumesByName(name string) ([]*objects.Volume, error) {
 func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*objects.Volume, error) {
 	opts := lvolV2.NewCreateOpts(s.extraInfo.ProjectID, popts)
 	vol, err := lvolV2.Create(s.volume, opts)
+
 	return vol, err
 }
 
@@ -382,5 +382,5 @@ func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
 	}
 
 	// Truncate the UUID for the virtual disk
-	return ljoat.Truncate(res.UUID, DefaultDiskSymbolIdLength), nil
+	return res.UUID, nil
 }

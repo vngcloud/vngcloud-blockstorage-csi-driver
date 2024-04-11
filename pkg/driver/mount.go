@@ -3,8 +3,12 @@ package driver
 import (
 	"fmt"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/mounter"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 	mountutils "k8s.io/mount-utils"
+	"k8s.io/utils/exec"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -21,6 +25,7 @@ type Mounter interface {
 	NewResizeFs() (Resizefs, error)
 	IsCorruptedMnt(err error) bool
 	Unpublish(path string) error
+	GetDevicePathBySerialID(pvolId string) (string, error)
 }
 
 type DeviceIdentifier interface {
@@ -125,4 +130,92 @@ func (s *nodeDeviceIdentifier) Lstat(name string) (os.FileInfo, error) {
 
 func (s *nodeDeviceIdentifier) EvalSymlinks(path string) (string, error) {
 	return filepath.EvalSymlinks(path)
+}
+
+func (s *NodeMounter) GetDevicePathBySerialID(pvolId string) (string, error) {
+	backoff := wait.Backoff{
+		Duration: operationFinishInitDelay,
+		Factor:   operationFinishFactor,
+		Steps:    operationFinishSteps,
+	}
+
+	var devicePath string
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		devicePath = getDevicePathBySerialID(pvolId)
+		if devicePath != "" {
+			return true, nil
+		}
+		// see issue https://github.com/kubernetes/cloud-provider-openstack/issues/705
+		if err := probeVolume(); err != nil {
+			// log the error, but continue. Might not happen in edge cases
+			klog.V(5).Infof("Unable to probe attached disk: %v", err)
+		}
+		return false, nil
+	})
+
+	if wait.Interrupted(err) {
+		return "", fmt.Errorf("failed to find device for the volumeID: %q within the alloted time", pvolId)
+	} else if devicePath == "" {
+		return "", fmt.Errorf("device path was empty for volumeID: %q", pvolId)
+	}
+	return devicePath, nil
+}
+
+func getDevicePathBySerialID(pvolID string) string {
+	// Build a list of candidate device paths.
+	// Certain Nova drivers will set the disk serial ID, including the Cinder volume id.
+	candidateDeviceNodes := []string{
+		// KVM
+		fmt.Sprintf("virtio-%s", pvolID[:20]),
+		// KVM #852
+		fmt.Sprintf("virtio-%s", pvolID),
+		// KVM virtio-scsi
+		fmt.Sprintf("scsi-0QEMU_QEMU_HARDDISK_%s", pvolID[:20]),
+		// KVM virtio-scsi #852
+		fmt.Sprintf("scsi-0QEMU_QEMU_HARDDISK_%s", pvolID),
+		// ESXi
+		fmt.Sprintf("wwn-0x%s", strings.Replace(pvolID, "-", "", -1)),
+	}
+
+	files, err := os.ReadDir("/dev/disk/by-id/")
+	if err != nil {
+		klog.V(4).Infof("ReadDir failed with error %v", err)
+	}
+
+	for _, f := range files {
+		for _, c := range candidateDeviceNodes {
+			if c == f.Name() {
+				klog.V(4).Infof("Found disk attached as %q; full devicepath: %s\n",
+					f.Name(), path.Join("/dev/disk/by-id/", f.Name()))
+				return path.Join("/dev/disk/by-id/", f.Name())
+			}
+		}
+	}
+
+	klog.V(4).Infof("Failed to find device for the volumeID: %q by serial ID", pvolID)
+	return ""
+}
+
+func probeVolume() error {
+	// rescan scsi bus
+	scsiPath := "/sys/class/scsi_host/"
+	if dirs, err := os.ReadDir(scsiPath); err == nil {
+		for _, f := range dirs {
+			name := scsiPath + f.Name() + "/scan"
+			data := []byte("- - -")
+			if err := os.WriteFile(name, data, 0666); err != nil {
+				return fmt.Errorf("Unable to scan %s: %w", f.Name(), err)
+			}
+		}
+	}
+
+	executor := exec.New()
+	args := []string{"trigger"}
+	cmd := executor.Command("udevadm", args...)
+	_, err := cmd.CombinedOutput()
+	if err != nil {
+		klog.V(3).Infof("error running udevadm trigger %v\n", err)
+		return err
+	}
+	return nil
 }

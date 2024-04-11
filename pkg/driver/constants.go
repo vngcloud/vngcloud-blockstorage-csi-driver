@@ -22,6 +22,10 @@ const (
 const (
 	diskPartitionSuffix     = ""
 	nvmeDiskPartitionSuffix = "p"
+
+	operationFinishInitDelay = 1 * ltime.Second
+	operationFinishFactor    = 1.1
+	operationFinishSteps     = 15
 )
 
 // constants for fstypes
@@ -102,6 +106,13 @@ var (
 				Ext4ClusterSizeKey: {},
 			},
 		},
+	}
+
+	// nodeCaps represents the capability of node service.
+	nodeCaps = []lcsi.NodeServiceCapability_RPC_Type{
+		lcsi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+		lcsi.NodeServiceCapability_RPC_EXPAND_VOLUME,
+		lcsi.NodeServiceCapability_RPC_GET_VOLUME_STATS,
 	}
 )
 

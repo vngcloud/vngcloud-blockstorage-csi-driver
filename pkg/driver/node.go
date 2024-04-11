@@ -267,16 +267,8 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 		return nil, status.Error(codes.InvalidArgument, "Device path not provided")
 	}
 
-	partition := ""
-	if part, ok := volumeContext[VolumeAttributePartition]; ok {
-		if part != "0" {
-			partition = part
-		} else {
-			klog.InfoS("NodeStageVolume: invalid partition config, will ignore.", "partition", part)
-		}
-	}
-
-	source, err := s.findDevicePath(devicePath, volumeID, partition)
+	//source, err := s.findDevicePath(devicePath, volumeID, "")
+	source, err := s.getDevicePath(devicePath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Failed to find device path %s. %v", devicePath, err)
 	}
@@ -440,7 +432,19 @@ func (s *nodeService) NodeExpandVolume(ctx context.Context, req *lcsi.NodeExpand
 }
 
 func (s *nodeService) NodeGetCapabilities(_ context.Context, req *lcsi.NodeGetCapabilitiesRequest) (*lcsi.NodeGetCapabilitiesResponse, error) {
-	return &lcsi.NodeGetCapabilitiesResponse{}, nil
+	klog.V(4).InfoS("NodeGetCapabilities: called", "args", *req)
+	var caps []*lcsi.NodeServiceCapability
+	for _, capa := range nodeCaps {
+		c := &lcsi.NodeServiceCapability{
+			Type: &lcsi.NodeServiceCapability_Rpc{
+				Rpc: &lcsi.NodeServiceCapability_RPC{
+					Type: capa,
+				},
+			},
+		}
+		caps = append(caps, c)
+	}
+	return &lcsi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
 func (s *nodeService) NodeGetInfo(_ context.Context, _ *lcsi.NodeGetInfoRequest) (*lcsi.NodeGetInfoResponse, error) {
@@ -585,7 +589,7 @@ func (s *nodeService) findDevicePath(devicePath, volumeID, partition string) (st
 
 func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeRequest, mountOptions []string) error {
 	target := req.GetTargetPath()
-	volumeID := req.GetVolumeId()
+	//volumeID := req.GetVolumeId()
 	volumeContext := req.GetVolumeContext()
 
 	devicePath, exists := req.GetPublishContext()[DevicePathKey]
@@ -596,16 +600,17 @@ func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeReque
 		return status.Error(codes.InvalidArgument, "Volume Attribute is invalid")
 	}
 
-	partition := ""
-	if part, ok := req.GetVolumeContext()[VolumeAttributePartition]; ok {
-		if part != "0" {
-			partition = part
-		} else {
-			klog.InfoS("NodePublishVolume: invalid partition config, will ignore.", "partition", part)
-		}
-	}
+	//partition := ""
+	//if part, ok := req.GetVolumeContext()[VolumeAttributePartition]; ok {
+	//	if part != "0" {
+	//		partition = part
+	//	} else {
+	//		klog.InfoS("NodePublishVolume: invalid partition config, will ignore.", "partition", part)
+	//	}
+	//}
 
-	source, err := s.findDevicePath(devicePath, volumeID, partition)
+	//source, err := s.findDevicePath(devicePath, volumeID, partition)
+	source, err := s.getDevicePath(devicePath)
 	if err != nil {
 		return status.Errorf(codes.Internal, "Failed to find device path %s. %v", devicePath, err)
 	}
@@ -825,4 +830,14 @@ func findNvmeVolume(deviceIdentifier DeviceIdentifier, findName string) (device 
 
 func errNoDevicePathFound(devicePath, volumeID string) error {
 	return fmt.Errorf("no device path for device %q volume %q found", devicePath, volumeID)
+}
+
+func (s *nodeService) getDevicePath(volumeID string) (string, error) {
+	var devicePath string
+	devicePath, err := s.mounter.GetDevicePathBySerialID(volumeID)
+	if err != nil {
+		klog.Warningf("Couldn't get device path from mount: %v", err)
+	}
+
+	return devicePath, nil
 }
