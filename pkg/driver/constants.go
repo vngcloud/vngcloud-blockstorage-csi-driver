@@ -64,3 +64,31 @@ const (
 	// IsPoc is a key to determine if the volume is a POC volume
 	IsPoc = "ispoc"
 )
+
+var (
+	FileSystemConfigs = map[string]fileSystemConfig{
+		FSTypeExt2: {
+			NotSupportedParams: map[string]struct{}{
+				Ext4BigAllocKey:    {},
+				Ext4ClusterSizeKey: {},
+			},
+		},
+		FSTypeExt3: {
+			NotSupportedParams: map[string]struct{}{
+				Ext4BigAllocKey:    {},
+				Ext4ClusterSizeKey: {},
+			},
+		},
+		FSTypeExt4: {
+			NotSupportedParams: map[string]struct{}{},
+		},
+		FSTypeXfs: {
+			NotSupportedParams: map[string]struct{}{
+				BytesPerInodeKey:   {},
+				NumberOfInodesKey:  {},
+				Ext4BigAllocKey:    {},
+				Ext4ClusterSizeKey: {},
+			},
+		},
+	}
+)

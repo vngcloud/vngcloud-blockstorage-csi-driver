@@ -16,7 +16,6 @@ import (
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
-	ldto "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/dto"
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
@@ -29,9 +28,8 @@ var (
 
 // Supported access modes
 const (
-	vContainerCSIClusterIDKey = DriverName + "/cluster"
-	SingleNodeWriter          = lcsi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
-	MultiNodeMultiWriter      = lcsi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
+	SingleNodeWriter     = lcsi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
+	MultiNodeMultiWriter = lcsi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
 )
 
 var (
@@ -55,8 +53,7 @@ type controllerService struct {
 	rpc.UnimplementedModifyServer
 }
 
-// newControllerService creates a new controller service
-// it panics if failed to create the service
+// newControllerService creates a new controller service it panics if failed to create the service
 func newControllerService(driverOptions *DriverOptions) controllerService {
 	metadata, err := NewMetadataFunc(cloud.DefaultVServerMetadataClient)
 	if err != nil {
@@ -87,8 +84,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		return nil, err
 	}
 
-	// Validate volume size, if volume size is less than the default volume size of cloud provider,
-	// set it to the default volume size
+	// Validate volume size, if volume size is less than the default volume size of cloud provider, set it to the default volume size
 	volSizeBytes := getVolSizeBytes(preq)
 	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
 	volCap := preq.GetVolumeCapabilities() // get volume capabilities
@@ -101,7 +97,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	}
 	defer s.inFlight.Delete(volName)
 
-	cvr := ldto.NewCreateVolumeRequest()
+	cvr := NewCreateVolumeRequest()
 	parser, _ := ljoat.GetParser()
 	for pk, pv := range preq.GetParameters() {
 		switch lstr.ToLower(pk) {
@@ -165,22 +161,25 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		cvr = cvr.WithSnapshotID(sourceSnapshot.GetSnapshotId())
 	}
 
+	respCtx, err := cvr.ToResponseContext(volCap)
+	if err != nil {
+		klog.Errorf("CreateVolume: failed to parse response context: %v", err)
+		return nil, err
+	}
+
 	cvr = cvr.WithVolumeName(volName).
 		WithMultiAttach(multiAttach).
 		WithVolumeSize(uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024))).
-		WithVolumeTypeID(modifyOpts.VolumeType)
+		WithVolumeTypeID(modifyOpts.VolumeType).
+		WithClusterID(s.driverOptions.clusterID)
 
-	reqOpts := new(lvolV2.CreateOpts)
-	reqOpts.IsPoc = false
-	reqOpts.CreatedFrom = cloud.CreateFromNew
-
-	resp, err := s.cloud.CreateVolume(reqOpts)
+	resp, err := s.cloud.CreateVolume(cvr.ToSdkCreateVolumeOpts(s.driverOptions))
 	if err != nil {
 		klog.Errorf("CreateVolume: failed to create volume: %v", err)
 		return nil, err
 	}
 
-	return newCreateVolumeResponse(resp), nil
+	return newCreateVolumeResponse(resp, respCtx), nil
 }
 
 func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
@@ -213,14 +212,8 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 		return nil, err
 	}
 
-	volumeID := preq.GetVolumeId()
-	nodeID := preq.GetNodeId()
-
-	vol, err1 := s.cloud.GetVolume(volumeID)
-	if err1 != nil {
-		klog.Errorf("ControllerPublishVolume; failed to get volume %s; ERR: %v", volumeID, err1.Error)
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get volume; ERR: %v", err1.Error))
-	}
+	volumeID := preq.GetVolumeId() // get the cloud volume ID
+	nodeID := preq.GetNodeId()     // get the cloud node ID
 
 	if !s.inFlight.Insert(volumeID + nodeID) {
 		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
@@ -230,11 +223,6 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)
 	if err != nil {
-		if vol != nil && vol.Status == cloud.VolumeInUseStatus {
-			klog.V(4).Infof("ControllerPublishVolume; volume %s attached to instance %s successfully", volumeID, nodeID)
-			return &lcsi.ControllerPublishVolumeResponse{}, nil
-		}
-
 		klog.Errorf("ControllerPublishVolume; failed to attach volume %s to instance %s; ERR: %v", volumeID, nodeID, err)
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to attach volume; ERR: %v", err))
 	}
@@ -387,10 +375,7 @@ func (s *controllerService) GetCSIDriverModificationCapability(
 	return &rpc.GetCSIDriverModificationCapabilityResponse{}, nil
 }
 
-func (s *controllerService) ModifyVolumeProperties(
-	ctx lctx.Context,
-	req *rpc.ModifyVolumePropertiesRequest,
-) (*rpc.ModifyVolumePropertiesResponse, error) {
+func (s *controllerService) ModifyVolumeProperties(ctx lctx.Context, req *rpc.ModifyVolumePropertiesRequest) (*rpc.ModifyVolumePropertiesResponse, error) {
 	klog.V(4).InfoS("ModifyVolumeProperties called", "req", req)
 	if err := validateModifyVolumePropertiesRequest(req); err != nil {
 		return nil, err
@@ -417,25 +402,18 @@ func isAttachment(vmId *string) bool {
 	return true
 }
 
-func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesRequest) error {
-	name := req.GetName()
-	if name == "" {
-		return status.Error(codes.InvalidArgument, "Volume name not provided")
-	}
-	return nil
-}
-
 const (
 	ModificationKeyVolumeType = "volumeType"
 )
 
-func newCreateVolumeResponse(disk *lsdkObj.Volume) *lcsi.CreateVolumeResponse {
+func newCreateVolumeResponse(disk *lsdkObj.Volume, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
 	//var src *lcsi.VolumeContentSource
 
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
 			VolumeId:      disk.VolumeId,
 			CapacityBytes: int64(disk.Size * 1024 * 1024 * 1024),
+			VolumeContext: prespCtx,
 		},
 	}
 }

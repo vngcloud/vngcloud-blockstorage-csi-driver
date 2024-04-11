@@ -3,9 +3,14 @@ package driver
 import (
 	"errors"
 	"fmt"
+
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
+
+	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 )
 
 func ValidateDriverOptions(options *DriverOptions) error {
@@ -145,5 +150,13 @@ func validateControllerUnpublishVolumeRequest(req *lcsi.ControllerUnpublishVolum
 		return ErrNodeIdNotProvided
 	}
 
+	return nil
+}
+
+func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesRequest) error {
+	name := req.GetName()
+	if name == "" {
+		return status.Error(codes.InvalidArgument, "Volume name not provided")
+	}
 	return nil
 }

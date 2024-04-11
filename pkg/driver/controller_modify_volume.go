@@ -142,9 +142,6 @@ func (h *modifyVolumeRequestHandler) validateModifyVolumeRequest(r *modifyVolume
 	if r.newSize != 0 && h.mergedRequest.newSize != 0 && r.newSize != h.mergedRequest.newSize {
 		return fmt.Errorf("Different size was requested by a previous request. Current: %d, Requested: %d", h.mergedRequest.newSize, r.newSize)
 	}
-	if r.modifyDiskOptions.VolumeSize != 0 && h.mergedRequest.modifyDiskOptions.VolumeSize != 0 && r.modifyDiskOptions.VolumeSize != h.mergedRequest.modifyDiskOptions.VolumeSize {
-		return fmt.Errorf("Different size was requested by a previous request. Current: %d, Requested: %d", h.mergedRequest.modifyDiskOptions.VolumeSize, r.modifyDiskOptions.VolumeSize)
-	}
 	if r.modifyDiskOptions.VolumeType != "" && h.mergedRequest.modifyDiskOptions.VolumeType != "" && r.modifyDiskOptions.VolumeType != h.mergedRequest.modifyDiskOptions.VolumeType {
 		return fmt.Errorf("Different volume type was requested by a previous request. Current: %s, Requested: %s", h.mergedRequest.modifyDiskOptions.VolumeType, r.modifyDiskOptions.VolumeType)
 	}
@@ -154,9 +151,6 @@ func (h *modifyVolumeRequestHandler) validateModifyVolumeRequest(r *modifyVolume
 func (h *modifyVolumeRequestHandler) mergeModifyVolumeRequest(r *modifyVolumeRequest) {
 	if r.newSize != 0 {
 		h.mergedRequest.newSize = r.newSize
-	}
-	if r.modifyDiskOptions.VolumeSize != 0 {
-		h.mergedRequest.modifyDiskOptions.VolumeSize = r.modifyDiskOptions.VolumeSize
 	}
 	if r.modifyDiskOptions.VolumeType != "" {
 		h.mergedRequest.modifyDiskOptions.VolumeType = r.modifyDiskOptions.VolumeType

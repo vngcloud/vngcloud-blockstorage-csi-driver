@@ -38,7 +38,7 @@ type Driver struct {
 	options *DriverOptions
 }
 
-type DriverOptions struct {
+type DriverOptions struct { // nolint: maligned
 	endpoint                          string
 	mode                              Mode
 	otelTracing                       bool
@@ -50,6 +50,8 @@ type DriverOptions struct {
 	vServerURL                        string
 	batching                          bool
 	clusterID                         string
+	tagKeyLength                      int
+	tagValueLength                    int
 }
 
 func NewDriver(options ...func(*DriverOptions)) (*Driver, error) {
@@ -139,6 +141,18 @@ func WithClusterID(pclusterID string) func(*DriverOptions) {
 	}
 }
 
+func WithTagKeyLength(ptkl int) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.tagKeyLength = ptkl
+	}
+}
+
+func WithTagValueLength(ptvl int) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.tagValueLength = ptvl
+	}
+}
+
 func WithUserAgentExtra(userAgentExtra string) func(*DriverOptions) {
 	return func(o *DriverOptions) {
 		o.userAgentExtra = userAgentExtra
@@ -151,8 +165,8 @@ func WithVServerURL(vServerURL string) func(*DriverOptions) {
 	}
 }
 
-func (d *Driver) Run() error {
-	scheme, addr, err := util.ParseEndpoint(d.options.endpoint)
+func (s *Driver) Run() error {
+	scheme, addr, err := util.ParseEndpoint(s.options.endpoint)
 	if err != nil {
 		return err
 	}
@@ -173,27 +187,35 @@ func (d *Driver) Run() error {
 	opts := []grpc.ServerOption{
 		grpc.UnaryInterceptor(logErr),
 	}
-	if d.options.otelTracing {
+	if s.options.otelTracing {
 		opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	}
-	d.srv = grpc.NewServer(opts...)
+	s.srv = grpc.NewServer(opts...)
 
-	csi.RegisterIdentityServer(d.srv, d)
+	csi.RegisterIdentityServer(s.srv, s)
 
-	switch d.options.mode {
+	switch s.options.mode {
 	case ControllerMode:
-		csi.RegisterControllerServer(d.srv, d)
-		rpc.RegisterModifyServer(d.srv, d)
+		csi.RegisterControllerServer(s.srv, s)
+		rpc.RegisterModifyServer(s.srv, s)
 	case NodeMode:
-		csi.RegisterNodeServer(d.srv, d)
+		csi.RegisterNodeServer(s.srv, s)
 	case AllMode:
-		csi.RegisterControllerServer(d.srv, d)
-		csi.RegisterNodeServer(d.srv, d)
-		rpc.RegisterModifyServer(d.srv, d)
+		csi.RegisterControllerServer(s.srv, s)
+		csi.RegisterNodeServer(s.srv, s)
+		rpc.RegisterModifyServer(s.srv, s)
 	default:
-		return fmt.Errorf("unknown mode: %s", d.options.mode)
+		return fmt.Errorf("unknown mode: %s", s.options.mode)
 	}
 
 	klog.V(4).InfoS("Listening for connections", "address", listener.Addr())
-	return d.srv.Serve(listener)
+	return s.srv.Serve(listener)
+}
+
+func (s *DriverOptions) GetTagKeyLength() int {
+	return s.tagKeyLength
+}
+
+func (s *DriverOptions) GetTagValueLength() int {
+	return s.tagValueLength
 }

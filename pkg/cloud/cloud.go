@@ -3,6 +3,7 @@ package cloud
 import (
 	"errors"
 	"fmt"
+	ljoat "github.com/cuongpiger/joat/string"
 	"strings"
 	"time"
 
@@ -162,15 +163,39 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 
 	opts := lVolAtch.NewCreateOpts(s.extraInfo.ProjectID, instanceID, volumeID)
 	_, err2 := lVolAtch.Attach(s.compute, opts)
-
 	if err2 != nil {
 		return "", err2
 	}
 
-	return vol.VolumeId, nil
+	err2 = s.waitDiskAttached(instanceID, volumeID)
+
+	return vol.VolumeId, err2
 }
 
 func (s *cloud) WaitDiskAttached(instanceID string, volumeID string) error {
+	backoff := wait.Backoff{
+		Duration: diskAttachInitDelay,
+		Factor:   diskAttachFactor,
+		Steps:    diskAttachSteps,
+	}
+
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		attached, err := s.diskIsAttached(instanceID, volumeID)
+		if err != nil {
+			return false, err
+		}
+
+		return attached, nil
+	})
+
+	if wait.Interrupted(err) {
+		err = fmt.Errorf("interrupted while waiting for volume %s to be attached to instance within the alloted time %s", volumeID, instanceID)
+	}
+
+	return err
+}
+
+func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 	backoff := wait.Backoff{
 		Duration: diskAttachInitDelay,
 		Factor:   diskAttachFactor,
@@ -358,4 +383,21 @@ func setupPortalInfo(pportalClient *client.ServiceClient, pmetadataSvc MetadataS
 // ModifyDiskOptions represents parameters to modify an EBS volume
 type ModifyDiskOptions struct {
 	VolumeType string
+}
+
+func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
+	opts := lVolAct.NewMappingOpts(s.extraInfo.ProjectID, pvolID)
+	res, err := lVolAct.GetMappingVolume(s.volume, opts)
+
+	// Process error occurs
+	if err != nil {
+		return "", err
+	}
+
+	if len(res.UUID) < DefaultDiskSymbolIdLength {
+		return "", ErrDeviceVolumeIdNotFound
+	}
+
+	// Truncate the UUID for the virtual disk
+	return ljoat.Truncate(res.UUID, DefaultDiskSymbolIdLength), nil
 }

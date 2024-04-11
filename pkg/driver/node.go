@@ -212,6 +212,7 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 	if len(fsType) == 0 {
 		fsType = defaultFsType
 	}
+	return nil, nil
 }
 
 func (s *nodeService) NodeUnstageVolume(ctx context.Context, req *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
