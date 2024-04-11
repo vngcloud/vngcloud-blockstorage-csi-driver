@@ -14,6 +14,14 @@ const (
 
 const (
 	volumeCreatingInProgress = "Create volume request for %s is already in progress"
+	// VolumeOperationAlreadyExists is message fmt returned to CO when there is another in-flight call on the given volumeID
+	volumeOperationAlreadyExists = "An operation with the given volume=%q is already in progress"
+)
+
+// constants of disk partition suffix
+const (
+	diskPartitionSuffix     = ""
+	nvmeDiskPartitionSuffix = "p"
 )
 
 // constants for fstypes
@@ -100,6 +108,10 @@ var (
 const (
 	// DevicePathKey represents key for device path in PublishContext, devicePath is the device path where the volume is attached to
 	DevicePathKey = "devicePath"
+
+	// VolumeAttributePartition represents key for partition config in VolumeContext
+	// this represents the partition number on a device used to mount
+	VolumeAttributePartition = "partition"
 )
 
 // Supported access modes

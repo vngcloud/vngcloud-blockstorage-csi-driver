@@ -3,6 +3,9 @@ package driver
 import (
 	"errors"
 	"fmt"
+	ljoat "github.com/cuongpiger/joat/parser"
+	"strconv"
+	"strings"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
@@ -159,4 +162,40 @@ func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesReques
 		return status.Error(codes.InvalidArgument, "Volume name not provided")
 	}
 	return nil
+}
+
+func isValidVolumeContext(volContext map[string]string) bool {
+	//There could be multiple volume attributes in the volumeContext map
+	//Validate here case by case
+	if partition, ok := volContext[VolumeAttributePartition]; ok {
+		partitionInt, err := strconv.ParseInt(partition, 10, 64)
+		if err != nil {
+			klog.ErrorS(err, "failed to parse partition as int", "partition", partition)
+			return false
+		}
+		if partitionInt < 0 {
+			klog.ErrorS(err, "invalid partition config", "partition", partition)
+			return false
+		}
+	}
+	return true
+}
+
+func recheckFormattingOptionParameter(context map[string]string, key string, fsConfigs map[string]fileSystemConfig, fsType string) (value string, err error) {
+	v, ok := context[key]
+	if ok {
+		parser, _ := ljoat.GetParser()
+		// This check is already performed on the controller side
+		// However, because it is potentially security-sensitive, we redo it here to be safe
+		if isAlphanumeric := parser.StringIsAlphanumeric(value); !isAlphanumeric {
+			return "", status.Errorf(codes.InvalidArgument, "Invalid %s (aborting!): %v", key, err)
+		}
+
+		// In the case that the default fstype does not support custom sizes we could
+		// be using an invalid fstype, so recheck that here
+		if supported := fsConfigs[strings.ToLower(fsType)].isParameterSupported(key); !supported {
+			return "", status.Errorf(codes.InvalidArgument, "Cannot use %s with fstype %s", key, fsType)
+		}
+	}
+	return v, nil
 }
