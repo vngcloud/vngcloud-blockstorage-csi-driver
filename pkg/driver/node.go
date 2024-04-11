@@ -417,7 +417,31 @@ func (s *nodeService) NodePublishVolume(ctx context.Context, req *lcsi.NodePubli
 	return &lcsi.NodePublishVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeUnpublishVolume(ctx context.Context, req *lcsi.NodeUnpublishVolumeRequest) (*lcsi.NodeUnpublishVolumeResponse, error) {
+func (s *nodeService) NodeUnpublishVolume(pctx context.Context, preq *lcsi.NodeUnpublishVolumeRequest) (*lcsi.NodeUnpublishVolumeResponse, error) {
+	klog.V(4).InfoS("NodeUnpublishVolume: called", "args", *preq)
+	volumeID := preq.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	target := preq.GetTargetPath()
+	if len(target) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Target path not provided")
+	}
+	if ok := s.inFlight.Insert(volumeID); !ok {
+		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExists, volumeID)
+	}
+	defer func() {
+		klog.V(4).InfoS("NodeUnPublishVolume: volume operation finished", "volumeId", volumeID)
+		s.inFlight.Delete(volumeID)
+	}()
+
+	klog.V(4).InfoS("NodeUnpublishVolume: unmounting", "target", target)
+	err := s.mounter.Unpublish(target)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not unmount %q: %v", target, err)
+	}
+
 	return &lcsi.NodeUnpublishVolumeResponse{}, nil
 }
 
