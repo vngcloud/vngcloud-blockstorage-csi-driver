@@ -219,28 +219,9 @@ func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 }
 
 func (s *cloud) DetachVolume(instanceID, volumeID string) error {
-	volume, err := s.GetVolume(volumeID)
-	if err != nil {
-		return err.Error
-	}
-
-	if volume == nil {
-		return fmt.Errorf("volume %s not found", volumeID)
-	}
-
-	if volume.PersistentVolume != true {
-		return fmt.Errorf("volume %s is not persistent volume", volumeID)
-	}
-
-	mc := metrics.NewMetricContext("volume", "detach")
-	_, err2 := lVolAtch.Delete(s.compute, lVolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
-
-	if mc.ObserveRequest(err2) != nil {
-		return err2
-	}
-
+	_, err := lVolAtch.Delete(s.compute, lVolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
 	// Disk has no attachments or not attached to the provided compute
-	return nil
+	return err
 }
 
 func (s *cloud) WaitDiskDetached(instanceID string, volumeID string) error {
@@ -329,6 +310,12 @@ func (s *cloud) diskIsUsed(volumeID string) bool {
 
 func (s *cloud) diskIsAttached(instanceID string, volumeID string) (bool, error) {
 	vol, err := s.GetVolume(volumeID)
+	if err != nil {
+		if err.Code == lvolV2.ErrVolumeNotFound {
+			return true, nil
+		}
+	}
+
 	if err != nil || vol == nil {
 		return false, err.Error
 	}
