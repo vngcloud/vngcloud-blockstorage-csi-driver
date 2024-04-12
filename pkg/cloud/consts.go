@@ -25,15 +25,15 @@ const (
 const (
 	waitVolumeActiveTimeout = 5 * time.Minute
 	waitVolumeActiveDelay   = 10
-	waitVolumeActiveSteps   = 7
+	waitVolumeActiveSteps   = 5
 
 	waitVolumeDetachTimeout = 7 * time.Minute
 	waitVolumeDetachDelay   = 10
-	waitVolumeDetachSteps   = 7
+	waitVolumeDetachSteps   = 5
 
 	waitVolumeAttachTimeout = 7 * time.Minute
 	waitVolumeAttachDelay   = 10
-	waitVolumeAttachSteps   = 7
+	waitVolumeAttachSteps   = 5
 )
 
 const (
