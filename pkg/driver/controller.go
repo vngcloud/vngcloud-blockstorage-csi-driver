@@ -216,7 +216,7 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 
-	klog.V(2).InfoS("ControllerPublishVolume: attaching", "volumeID", volumeID, "nodeID", nodeID)
+	klog.V(2).InfoS("ControllerPublishVolume: attaching volume into the instance", "volumeID", volumeID, "nodeID", nodeID)
 
 	// Attach the volume and wait for it to be attached
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)
@@ -231,7 +231,7 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get device path for volume; ERR: %v", err))
 	}
 
-	klog.V(5).InfoS("ControllerPublishVolume; volume %s attached to instance %s successfully", volumeID, nodeID)
+	klog.V(5).InfoS("ControllerPublishVolume; volume attached to instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return newControllerPublishVolumeResponse(devicePath), nil
 }
 
@@ -264,10 +264,6 @@ func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcs
 	if err != nil {
 		klog.Errorf("ControllerUnpublishVolume; failed to detach volume %s from instance %s; ERR: %v", volumeID, nodeID, err)
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to detach volume; ERR: %v", err))
-	}
-
-	if err := s.cloud.WaitDiskDetached(nodeID, volumeID); err != nil {
-		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to wait disk detached; ERR: %v", err))
 	}
 
 	klog.V(4).Infof("ControllerUnpublishVolume; volume %s detached from instance %s successfully", volumeID, nodeID)

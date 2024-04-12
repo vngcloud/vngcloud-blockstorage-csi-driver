@@ -12,11 +12,8 @@ type Cloud interface {
 	GetVolume(volumeID string) (*objects.Volume, *lsdkErr.SdkError)
 	DeleteVolume(volID string) error
 	AttachVolume(instanceID, volumeID string) (string, error)
-	WaitDiskAttached(instanceID string, volumeID string) error
 	DetachVolume(instanceID, volumeID string) error
-	WaitDiskDetached(instanceID string, volumeID string) error
 	ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error
-	WaitVolumeTargetStatus(volumeID string, tStatus []string) error
 	ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error)
 	GetDeviceDiskID(pvolID string) (string, error)
 }

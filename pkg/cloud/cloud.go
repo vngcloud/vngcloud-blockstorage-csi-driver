@@ -3,15 +3,14 @@ package cloud
 import (
 	"errors"
 	"fmt"
-	lset "github.com/cuongpiger/joat/data-structure/set"
-	"strings"
 	"time"
 
-	"github.com/cuongpiger/joat/utils"
+	ljutils "github.com/cuongpiger/joat/utils"
+	ljwait "github.com/cuongpiger/joat/utils/exponential-backoff"
 	"github.com/vngcloud/vngcloud-go-sdk/client"
 	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
-	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
+	lerrEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
 	lvolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
@@ -20,32 +19,13 @@ import (
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/extensions/oauth2"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/tokens"
 	lPortal "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/portal/v1"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
-)
-
-var (
-	errSetDetachIngore = lset.NewSet[lsdkErr.ErrorCode](lsdkEH.ErrCodeVolumeAvailable, lsdkEH.ErrCodeVolumeNotFound)
 )
 
 // Defaults
 const (
-	// DefaultVolumeSize represents the default volume size.
-	DefaultVolumeSize   int64 = 20 * util.GiB
-	diskAttachInitDelay       = 30 * time.Second
-	diskAttachSteps           = 15
-	diskAttachFactor          = 1.2
-
-	VolumeAvailableStatus = "AVAILABLE"
-	VolumeInUseStatus     = "IN-USE"
-
-	diskDetachInitDelay = 3 * time.Second
-	diskDetachFactor    = 1.2
-	diskDetachSteps     = 13
-
 	operationFinishInitDelay = 1 * time.Second
 	operationFinishFactor    = 1.1
 	operationFinishSteps     = 15
@@ -58,8 +38,8 @@ var (
 // NewCloud returns a new instance of AWS cloud
 // It panics if session is invalid
 func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc MetadataService) (Cloud, error) {
-	vserverV1 := utils.NormalizeURL(vserverUrl) + "v1"
-	vserverV2 := utils.NormalizeURL(vserverUrl) + "v2"
+	vserverV1 := ljutils.NormalizeURL(vserverUrl) + "v1"
+	vserverV2 := ljutils.NormalizeURL(vserverUrl) + "v2"
 	pc, err := newVngCloud(iamURL, clientID, clientSecret)
 	if err != nil {
 		return nil, err
@@ -83,7 +63,7 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 }
 
 func newVngCloud(iamURL, clientID, clientSecret string) (*client.ProviderClient, error) {
-	identityUrl := utils.NormalizeURL(iamURL) + "v2"
+	identityUrl := ljutils.NormalizeURL(iamURL) + "v2"
 	provider, _ := vngcloud.NewClient(identityUrl)
 	err := vngcloud.Authenticate(provider, &oauth2.AuthOptions{
 		ClientID:     clientID,
@@ -135,6 +115,12 @@ func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*objects.Volume, error) 
 	opts := lvolV2.NewCreateOpts(s.extraInfo.ProjectID, popts)
 	vol, err := lvolV2.Create(s.volume, opts)
 
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.waitVolumeActive(vol.VolumeId)
+
 	return vol, err
 }
 
@@ -145,12 +131,16 @@ func (s *cloud) GetVolume(volumeID string) (*objects.Volume, *lsdkErr.SdkError) 
 }
 
 func (s *cloud) DeleteVolume(volID string) error {
-	used := s.diskIsUsed(volID)
-	if used {
-		return fmt.Errorf("cannot delete the volume %q, it's still attached to a node", volID)
+	vol, err := s.GetVolume(volID)
+	if err != nil && err.Code == lerrEH.ErrCodeVolumeNotFound {
+		return nil
 	}
 
-	return lvolV2.Delete(s.volume, lvolV2.NewDeleteOpts(s.extraInfo.ProjectID, volID))
+	if vol.Status == VolumeAvailableStatus {
+		return lvolV2.Delete(s.volume, lvolV2.NewDeleteOpts(s.extraInfo.ProjectID, volID))
+	}
+
+	return nil
 }
 
 func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
@@ -178,50 +168,20 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 	return vol.VolumeId, err2
 }
 
-func (s *cloud) WaitDiskAttached(instanceID string, volumeID string) error {
-	backoff := wait.Backoff{
-		Duration: diskAttachInitDelay,
-		Factor:   diskAttachFactor,
-		Steps:    diskAttachSteps,
-	}
-
-	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		attached, err := s.diskIsAttached(instanceID, volumeID)
-		if err != nil {
-			return false, err
-		}
-
-		return attached, nil
-	})
-
-	if wait.Interrupted(err) {
-		err = fmt.Errorf("interrupted while waiting for volume %s to be attached to instance within the alloted time %s", volumeID, instanceID)
-	}
-
-	return err
-}
-
 func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
-	backoff := wait.Backoff{
-		Duration: diskAttachInitDelay,
-		Factor:   diskAttachFactor,
-		Steps:    diskAttachSteps,
-	}
-
-	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		attached, err := s.diskIsAttached(instanceID, volumeID)
+	return ljwait.ExponentialBackoff(ljwait.NewBackOff(waitVolumeAttachSteps, waitVolumeAttachDelay, true, waitVolumeAttachTimeout), func() (bool, error) {
+		vol, err := s.GetVolume(volumeID)
 		if err != nil {
-			return false, err
+			return false, err.Error
 		}
 
-		return attached, nil
+		if vol.VmId != nil && *vol.VmId == instanceID && vol.Status == VolumeInUseStatus {
+			return true, nil
+
+		}
+
+		return false, nil
 	})
-
-	if wait.Interrupted(err) {
-		err = fmt.Errorf("interrupted while waiting for volume %s to be attached to instance within the alloted time %s", volumeID, instanceID)
-	}
-
-	return err
 }
 
 func (s *cloud) DetachVolume(instanceID, volumeID string) error {
@@ -235,30 +195,7 @@ func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 		return err.Error
 	}
 
-	return nil
-}
-
-func (s *cloud) WaitDiskDetached(instanceID string, volumeID string) error {
-	backoff := wait.Backoff{
-		Duration: diskDetachInitDelay,
-		Factor:   diskDetachFactor,
-		Steps:    diskDetachSteps,
-	}
-
-	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		attached, err := s.diskIsAttached(instanceID, volumeID)
-		if err != nil {
-			return false, err
-		}
-
-		return !attached, nil
-	})
-
-	if wait.Interrupted(err) {
-		err = fmt.Errorf("interrupted while waiting for volume %s to be detached from instance within the alloted time %s", volumeID, instanceID)
-	}
-
-	return err
+	return s.waitDiskDetached(volumeID)
 }
 
 func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error {
@@ -272,74 +209,8 @@ func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) erro
 	return nil
 }
 
-func (s *cloud) WaitVolumeTargetStatus(volumeID string, tStatus []string) error {
-	backoff := wait.Backoff{
-		Duration: operationFinishInitDelay,
-		Factor:   operationFinishFactor,
-		Steps:    operationFinishSteps,
-	}
-
-	waitErr := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		vol, err := s.GetVolume(volumeID)
-		if err != nil {
-			return false, err.Error
-		}
-
-		if vol == nil {
-			return false, fmt.Errorf("volume %s not found", volumeID)
-		}
-
-		for _, t := range tStatus {
-			if vol.Status == t {
-				return true, nil
-			}
-		}
-
-		return false, fmt.Errorf("WaitVolumeTargetStatus; volume %s status is %s", volumeID, vol.Status)
-	})
-
-	if wait.Interrupted(waitErr) {
-		waitErr = fmt.Errorf("timeout on waiting for volume %s status to be in %v", volumeID, tStatus)
-	}
-
-	return waitErr
-}
-
 func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {
 	return 0, nil
-}
-
-func (s *cloud) diskIsUsed(volumeID string) bool {
-	vol, err := s.GetVolume(volumeID)
-	if err != nil && err.Code == lvolV2.ErrVolumeNotFound {
-		return false
-	}
-
-	if vol != nil && vol.Status == VolumeAvailableStatus {
-		return false
-	}
-
-	return true
-}
-
-func (s *cloud) diskIsAttached(instanceID string, volumeID string) (bool, error) {
-	vol, err := s.GetVolume(volumeID)
-	if err != nil {
-		klog.ErrorS(err.Error, "diskIsAttached; GetVolume", "volumeID", volumeID)
-		if err.Code == lvolV2.ErrVolumeNotFound {
-			return true, nil
-		}
-	}
-
-	if err != nil || vol == nil {
-		return false, err.Error
-	}
-
-	if strings.ToUpper(vol.Status) != VolumeInUseStatus {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 func setupPortalInfo(pportalClient *client.ServiceClient, pmetadataSvc MetadataService) (*extraInfa, error) {
@@ -385,4 +256,37 @@ func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
 
 	// Truncate the UUID for the virtual disk
 	return res.UUID, nil
+}
+
+func (s *cloud) waitVolumeActive(pvolID string) error {
+	return ljwait.ExponentialBackoff(ljwait.NewBackOff(waitVolumeActiveSteps, waitVolumeActiveDelay, true, waitVolumeActiveTimeout), func() (bool, error) {
+		vol, err := s.GetVolume(pvolID)
+		if err != nil {
+			return false, err.Error
+		}
+
+		if vol.Status == VolumeAvailableStatus {
+			return true, nil
+		}
+
+		return false, nil
+	})
+}
+
+func (s *cloud) waitDiskDetached(volumeID string) error {
+	return ljwait.ExponentialBackoff(
+		ljwait.NewBackOff(waitVolumeDetachSteps, waitVolumeDetachDelay, true, waitVolumeDetachTimeout),
+		func() (bool, error) {
+			vol, err := s.GetVolume(volumeID)
+			if err != nil {
+				return false, err.Error
+			}
+
+			if vol.Status == VolumeAvailableStatus || (vol.Status == VolumeInUseStatus && len(vol.AttachedMachine) > 0) {
+				return true, nil
+			}
+
+			return false, nil
+		},
+	)
 }
