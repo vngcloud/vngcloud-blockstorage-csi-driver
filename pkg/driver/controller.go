@@ -202,8 +202,9 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 
 func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
 	klog.V(5).InfoS("ControllerPublishVolume: called", "args", *preq)
+
 	if err = validateControllerPublishVolumeRequest(preq); err != nil {
-		klog.Errorf("ControllerPublishVolume: invalid request: %v", err)
+		klog.ErrorS(err, "ControllerPublishVolume: invalid request")
 		return nil, err
 	}
 
@@ -221,7 +222,7 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	// Attach the volume and wait for it to be attached
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)
 	if err != nil {
-		klog.Errorf("ControllerPublishVolume; failed to attach volume %s to instance %s; ERR: %v", volumeID, nodeID, err)
+		klog.ErrorS(err, "ControllerPublishVolume; failed to attach volume to instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to attach volume; ERR: %v", err))
 	}
 

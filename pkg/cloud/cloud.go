@@ -159,13 +159,13 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 
 	opts := lVolAtch.NewCreateOpts(s.extraInfo.ProjectID, instanceID, volumeID)
 	_, err2 := lVolAtch.Attach(s.compute, opts)
-	if err2 != nil {
-		return "", err2
+	if err2 != nil && err2.Code != lerrEH.ErrCodeVolumeAlreadyAttached {
+		return "", err2.Error
 	}
 
-	err2 = s.waitDiskAttached(instanceID, volumeID)
+	err3 := s.waitDiskAttached(instanceID, volumeID)
 
-	return vol.VolumeId, err2
+	return vol.VolumeId, err3
 }
 
 func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
