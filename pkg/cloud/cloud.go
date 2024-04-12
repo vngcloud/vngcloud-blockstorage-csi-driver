@@ -159,7 +159,11 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 
 	opts := lVolAtch.NewCreateOpts(s.extraInfo.ProjectID, instanceID, volumeID)
 	_, err2 := lVolAtch.Attach(s.compute, opts)
-	if err2 != nil && err2.Code != lerrEH.ErrCodeVolumeAlreadyAttached {
+	if err2 != nil {
+		if err2.Code == lerrEH.ErrCodeVolumeAlreadyAttached {
+			return vol.VolumeId, nil
+		}
+
 		return "", err2.Error
 	}
 
