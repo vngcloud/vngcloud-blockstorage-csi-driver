@@ -17,4 +17,6 @@ var (
 	ErrStagingTargetPathNotProvided    = lstt.Error(lcodes.InvalidArgument, "Staging target not provided")
 	ErrVolumeContentSourceNotSupported = lstt.Error(lcodes.InvalidArgument, "Unsupported volumeContentSource type")
 	ErrSnapshotIsNil                   = lstt.Error(lcodes.InvalidArgument, "Error retrieving snapshot from the volumeContentSource")
+	ErrSnapshotNameNotProvided         = lstt.Error(lcodes.InvalidArgument, "Snapshot name not provided")
+	ErrSnapshotSourceVolumeNotProvided = lstt.Error(lcodes.InvalidArgument, "Snapshot volume source ID not provided")
 )

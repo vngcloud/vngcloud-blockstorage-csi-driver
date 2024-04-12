@@ -199,3 +199,14 @@ func recheckFormattingOptionParameter(context map[string]string, key string, fsC
 	}
 	return v, nil
 }
+
+func validateCreateSnapshotRequest(req *lcsi.CreateSnapshotRequest) error {
+	if len(req.GetName()) == 0 {
+		return ErrSnapshotNameNotProvided
+	}
+
+	if len(req.GetSourceVolumeId()) == 0 {
+		return ErrSnapshotSourceVolumeNotProvided
+	}
+	return nil
+}

@@ -140,7 +140,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 
 	modifyOpts, err := parseModifyVolumeParameters(preq.GetMutableParameters())
 	if err != nil {
-		klog.Errorf("CreateVolume: invalid request: %v", err)
+		klog.ErrorS(err, "CreateVolume: invalid request")
 		return nil, ErrModifyMutableParam
 	}
 
@@ -236,22 +236,22 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	return newControllerPublishVolumeResponse(devicePath), nil
 }
 
-func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
-	klog.V(4).InfoS("ControllerUnpublishVolume: called", "args", *req)
+func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, preq *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
+	klog.V(4).InfoS("ControllerUnpublishVolume: called", "preq", *preq)
 
-	if err := validateControllerUnpublishVolumeRequest(req); err != nil {
+	if err := validateControllerUnpublishVolumeRequest(preq); err != nil {
 		return nil, err
 	}
 
-	volumeID := req.GetVolumeId()
-	nodeID := req.GetNodeId()
+	volumeID := preq.GetVolumeId()
+	nodeID := preq.GetNodeId()
 
 	if !s.inFlight.Insert(volumeID + nodeID) {
 		return nil, status.Error(codes.Aborted, fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 	if volumeID == "" {
-		klog.Errorf("ControllerUnpublishVolume; Volume ID is required")
+		klog.Errorf("ControllerUnpublishVolume; VolumeID is required")
 		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
 	}
 
@@ -263,16 +263,31 @@ func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcs
 
 	err := s.cloud.DetachVolume(nodeID, volumeID)
 	if err != nil {
-		klog.Errorf("ControllerUnpublishVolume; failed to detach volume %s from instance %s; ERR: %v", volumeID, nodeID, err)
+		klog.ErrorS(err, "ControllerUnpublishVolume; failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to detach volume; ERR: %v", err))
 	}
 
-	klog.V(4).Infof("ControllerUnpublishVolume; volume %s detached from instance %s successfully", volumeID, nodeID)
+	klog.V(4).InfoS("ControllerUnpublishVolume; volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 func (s *controllerService) CreateSnapshot(ctx lctx.Context, req *lcsi.CreateSnapshotRequest) (*lcsi.CreateSnapshotResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "CreateSnapshot is not yet implemented")
+	klog.V(4).InfoS("CreateSnapshot: called", "args", req)
+	if err := validateCreateSnapshotRequest(req); err != nil {
+		return nil, err
+	}
+
+	snapshotName := req.GetName()
+	//volumeID := req.GetSourceVolumeId()
+
+	// check if a request is already in-flight
+	if ok := s.inFlight.Insert(snapshotName); !ok {
+		msg := fmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, snapshotName)
+		return nil, status.Error(codes.Aborted, msg)
+	}
+	defer s.inFlight.Delete(snapshotName)
+
+	return nil, nil
 }
 
 func (s *controllerService) DeleteSnapshot(ctx lctx.Context, req *lcsi.DeleteSnapshotRequest) (*lcsi.DeleteSnapshotResponse, error) {
