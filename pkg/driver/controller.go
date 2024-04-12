@@ -8,6 +8,7 @@ import (
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	ljoat "github.com/cuongpiger/joat/parser"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
+	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	"google.golang.org/grpc/codes"
@@ -253,7 +254,17 @@ func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, req *lcs
 		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
 	}
 
-	_ = s.cloud.DetachVolume(nodeID, volumeID)
+	_, getErr := s.cloud.GetVolume(volumeID)
+	if getErr != nil && getErr.Code == lsdkEH.ErrCodeVolumeNotFound {
+		klog.InfoS("ControllerUnpublishVolume; volume not found", "volumeID", volumeID)
+		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
+	}
+
+	err := s.cloud.DetachVolume(nodeID, volumeID)
+	if err != nil {
+		klog.Errorf("ControllerUnpublishVolume; failed to detach volume %s from instance %s; ERR: %v", volumeID, nodeID, err)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to detach volume; ERR: %v", err))
+	}
 
 	if err := s.cloud.WaitDiskDetached(nodeID, volumeID); err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to wait disk detached; ERR: %v", err))

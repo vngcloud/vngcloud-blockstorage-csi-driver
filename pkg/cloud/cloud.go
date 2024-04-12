@@ -3,6 +3,7 @@ package cloud
 import (
 	"errors"
 	"fmt"
+	lset "github.com/cuongpiger/joat/data-structure/set"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/vngcloud/vngcloud-go-sdk/client"
 	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
+	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
 	lvolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
@@ -23,6 +25,10 @@ import (
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
+)
+
+var (
+	errSetDetachIngore = lset.NewSet[lsdkErr.ErrorCode](lsdkEH.ErrCodeVolumeAvailable, lsdkEH.ErrCodeVolumeNotFound)
 )
 
 // Defaults
@@ -219,9 +225,17 @@ func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 }
 
 func (s *cloud) DetachVolume(instanceID, volumeID string) error {
-	_, err := lVolAtch.Delete(s.compute, lVolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
+	_, err := lVolAtch.Detach(s.compute, lVolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
 	// Disk has no attachments or not attached to the provided compute
-	return err
+	if err != nil {
+		if errSetDetachIngore.ContainsOne(err.Code) {
+			return nil
+		}
+
+		return err.Error
+	}
+
+	return nil
 }
 
 func (s *cloud) WaitDiskDetached(instanceID string, volumeID string) error {
@@ -311,6 +325,7 @@ func (s *cloud) diskIsUsed(volumeID string) bool {
 func (s *cloud) diskIsAttached(instanceID string, volumeID string) (bool, error) {
 	vol, err := s.GetVolume(volumeID)
 	if err != nil {
+		klog.ErrorS(err.Error, "diskIsAttached; GetVolume", "volumeID", volumeID)
 		if err.Code == lvolV2.ErrVolumeNotFound {
 			return true, nil
 		}
