@@ -19,4 +19,5 @@ type Cloud interface {
 	GetDeviceDiskID(pvolID string) (string, error)
 	GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsdkObj.Snapshot, error)
 	CreateSnapshotFromVolume(pvolID string, popts *lsnapshotV2.CreateOpts) (*lsdkObj.Snapshot, error)
+	DeleteSnapshot(psnapshotID string) error
 }

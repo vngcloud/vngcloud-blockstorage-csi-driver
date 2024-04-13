@@ -319,8 +319,29 @@ func (s *controllerService) CreateSnapshot(_ lctx.Context, preq *lcsi.CreateSnap
 	return newCreateSnapshotResponse(snapshot)
 }
 
-func (s *controllerService) DeleteSnapshot(ctx lctx.Context, req *lcsi.DeleteSnapshotRequest) (*lcsi.DeleteSnapshotResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "DeleteSnapshot is not yet implemented")
+func (s *controllerService) DeleteSnapshot(_ lctx.Context, preq *lcsi.DeleteSnapshotRequest) (*lcsi.DeleteSnapshotResponse, error) {
+	klog.V(4).InfoS("DeleteSnapshot: called", "preq", preq)
+	if err := validateDeleteSnapshotRequest(preq); err != nil {
+		return nil, err
+	}
+
+	snapshotID := preq.GetSnapshotId()
+
+	// check if a request is already in-flight
+	if ok := s.inFlight.Insert(snapshotID); !ok {
+		return nil, status.Error(
+			codes.Aborted,
+			lfmt.Sprintf("DeleteSnapshot for Snapshot %s is already in progress", snapshotID))
+	}
+	defer s.inFlight.Delete(snapshotID)
+
+	if err := s.cloud.DeleteSnapshot(snapshotID); err != nil {
+		klog.Error(err, "DeleteSnapshot: Error deleting snapshot", "snapshotID", snapshotID)
+		return nil, status.Errorf(codes.Internal, "Could not delete snapshot ID %q: %v", snapshotID, err)
+	}
+
+	klog.V(5).InfoS("DeleteSnapshot: snapshot deleted successfully", "snapshotID", snapshotID)
+	return &lcsi.DeleteSnapshotResponse{}, nil
 }
 
 func (s *controllerService) ListSnapshots(ctx lctx.Context, req *lcsi.ListSnapshotsRequest) (*lcsi.ListSnapshotsResponse, error) {

@@ -2,7 +2,6 @@ package cloud
 
 import (
 	"fmt"
-
 	ljutils "github.com/cuongpiger/joat/utils"
 	ljwait "github.com/cuongpiger/joat/utils/exponential-backoff"
 	"github.com/vngcloud/vngcloud-go-sdk/client"
@@ -11,7 +10,6 @@ import (
 	lerrEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
-	lsnapshotV1 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v1/snapshot"
 	lvolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
 	lsnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
@@ -28,9 +26,6 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 	vserverV1 := ljutils.NormalizeURL(vserverUrl) + "v1"
 	vserverV2 := ljutils.NormalizeURL(vserverUrl) + "v2"
 
-	// !TODO: remove in the near future
-	vbackupV1 := ljutils.NormalizeURL("https://hcm-3.console.vngcloud.vn/vserver/vbackup-gateway") + "v1"
-
 	pc, err := newVngCloud(iamURL, clientID, clientSecret)
 	if err != nil {
 		return nil, err
@@ -39,7 +34,6 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 	compute, _ := vngcloud.NewServiceClient(vserverV2, pc, "compute")
 	volume, _ := vngcloud.NewServiceClient(vserverV2, pc, "volume")
 	portal, _ := vngcloud.NewServiceClient(vserverV1, pc, "portal")
-	backup, _ := vngcloud.NewServiceClient(vbackupV1, pc, "backup-v1")
 	ei, err := setupPortalInfo(portal, metadataSvc)
 	if err != nil {
 		return nil, err
@@ -49,7 +43,6 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 		compute:         compute,
 		volume:          volume,
 		portal:          portal,
-		backup:          backup,
 		metadataService: metadataSvc,
 		extraInfo:       ei,
 	}, nil
@@ -97,7 +90,6 @@ type (
 		compute         *client.ServiceClient
 		volume          *client.ServiceClient
 		portal          *client.ServiceClient
-		backup          *client.ServiceClient
 		extraInfo       *extraInfa
 		metadataService MetadataService
 	}
@@ -118,7 +110,7 @@ func (s *cloud) GetVolumesByName(name string) ([]*lsdkObj.Volume, error) {
 
 	var vols []*lsdkObj.Volume
 
-	opts := lvolV2.NewListOpts(s.extraInfo.ProjectID, name, 0, 0)
+	opts := lvolV2.NewListOpts(s.getProjectID(), name, 0, 0)
 	mc := metrics.NewMetricContext("volume", "list")
 	err := lvolV2.List(s.volume, opts).EachPage(func(page pagination.IPage) (bool, error) {
 		vols = append(vols, page.GetBody().(*lvolV2.ListResponse).ToListVolumeObjects()...)
@@ -133,7 +125,7 @@ func (s *cloud) GetVolumesByName(name string) ([]*lsdkObj.Volume, error) {
 }
 
 func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*lsdkObj.Volume, error) {
-	opts := lvolV2.NewCreateOpts(s.extraInfo.ProjectID, popts)
+	opts := lvolV2.NewCreateOpts(s.getProjectID(), popts)
 	vol, err := lvolV2.Create(s.volume, opts)
 
 	if err != nil {
@@ -146,7 +138,7 @@ func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*lsdkObj.Volume, error) 
 }
 
 func (s *cloud) GetVolume(volumeID string) (*lsdkObj.Volume, *lsdkErr.SdkError) {
-	opts := lvolV2.NewGetOpts(s.extraInfo.ProjectID, volumeID)
+	opts := lvolV2.NewGetOpts(s.getProjectID(), volumeID)
 	result, err := lvolV2.Get(s.volume, opts)
 	return result, err
 }
@@ -178,7 +170,7 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 		return "", fmt.Errorf("volume %s already attached to instance %s", volumeID, *vol.VmId)
 	}
 
-	opts := lvolAtch.NewCreateOpts(s.extraInfo.ProjectID, instanceID, volumeID)
+	opts := lvolAtch.NewCreateOpts(s.getProjectID(), instanceID, volumeID)
 	_, err2 := lvolAtch.Attach(s.compute, opts)
 	if err2 != nil {
 		if err2.Code == lerrEH.ErrCodeVolumeAlreadyAttached {
@@ -194,7 +186,7 @@ func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
 }
 
 func (s *cloud) DetachVolume(instanceID, volumeID string) error {
-	_, err := lvolAtch.Detach(s.compute, lvolAtch.NewDeleteOpts(s.extraInfo.ProjectID, instanceID, volumeID))
+	_, err := lvolAtch.Detach(s.compute, lvolAtch.NewDeleteOpts(s.getProjectID(), instanceID, volumeID))
 	// Disk has no attachments or not attached to the provided compute
 	if err != nil {
 		if errSetDetachIngore.ContainsOne(err.Code) {
@@ -208,7 +200,7 @@ func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 }
 
 func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error {
-	opts := lvolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
+	opts := lvolAct.NewResizeOpts(s.getProjectID(), volumeTypeID, volumeID, newSize)
 	mc := metrics.NewMetricContext("volume", "extend")
 	_, err := lvolAct.Resize(s.volume, opts)
 	if mc.ObserveRequest(err) != nil {
@@ -223,7 +215,7 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 }
 
 func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
-	opts := lvolAct.NewMappingOpts(s.extraInfo.ProjectID, pvolID)
+	opts := lvolAct.NewMappingOpts(s.getProjectID(), pvolID)
 	res, err := lvolAct.GetMappingVolume(s.volume, opts)
 
 	// Process error occurs
@@ -240,7 +232,8 @@ func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
 }
 
 func (s *cloud) GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsdkObj.Snapshot, error) {
-	res, err := lsnapshotV1.ListVolumeSnapshot(s.backup, lsnapshotV1.NewListVolumeOpts(s.extraInfo.ProjectID, pvolID, 1, 100))
+	res, err := lsnapshotV2.ListVolumeSnapshot(
+		s.volume, lsnapshotV2.NewListVolumeOpts(s.getProjectID(), pvolID, defaultPage, defaultPageSize))
 	if err != nil {
 		return nil, err.Error
 	}
@@ -255,13 +248,22 @@ func (s *cloud) GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsdkObj.
 }
 
 func (s *cloud) CreateSnapshotFromVolume(pvolID string, popts *lsnapshotV2.CreateOpts) (*lsdkObj.Snapshot, error) {
-	resp, err := lsnapshotV2.Create(s.volume, lsnapshotV2.NewCreateOpts(s.extraInfo.ProjectID, pvolID, popts))
+	resp, err := lsnapshotV2.Create(s.volume, lsnapshotV2.NewCreateOpts(s.getProjectID(), pvolID, popts))
 	if err != nil {
 		return nil, err
 	}
 
 	err = s.waitSnapshotActive(popts.VolumeID, resp.Name)
 	return resp, err
+}
+
+func (s *cloud) DeleteSnapshot(psnapshotID string) error {
+	err := lsnapshotV2.Delete(s.volume, lsnapshotV2.NewDeleteOpts(s.getProjectID(), psnapshotID))
+	if err != nil && err.Code != lerrEH.ErrCodeSnapshotNotFound {
+		return err.Error
+	}
+
+	return nil
 }
 
 func (s *cloud) waitVolumeActive(pvolID string) error {
@@ -326,4 +328,8 @@ func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 
 		return false, nil
 	})
+}
+
+func (s *cloud) getProjectID() string {
+	return s.extraInfo.ProjectID
 }

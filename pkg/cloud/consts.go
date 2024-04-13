@@ -20,6 +20,9 @@ const (
 
 	// DefaultVolumeSize represents the default volume size.
 	DefaultVolumeSize int64 = 20 * util.GiB
+
+	defaultPage     = 1
+	defaultPageSize = 100
 )
 
 const (

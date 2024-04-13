@@ -210,3 +210,10 @@ func validateCreateSnapshotRequest(req *lcsi.CreateSnapshotRequest) error {
 	}
 	return nil
 }
+
+func validateDeleteSnapshotRequest(req *lcsi.DeleteSnapshotRequest) error {
+	if len(req.GetSnapshotId()) == 0 {
+		return status.Error(codes.InvalidArgument, "Snapshot ID not provided")
+	}
+	return nil
+}
