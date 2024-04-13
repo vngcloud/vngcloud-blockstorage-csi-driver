@@ -306,7 +306,7 @@ func (s *controllerService) CreateSnapshot(_ lctx.Context, preq *lcsi.CreateSnap
 	snapshot, err = s.cloud.CreateSnapshotFromVolume(volumeID,
 		&lsdkSnapshotV2.CreateOpts{
 			Name:        snapshotName,
-			Description: lfmt.Sprintf(patternSnapshotDescription, snapshotName, s.getClusterID()),
+			Description: lfmt.Sprintf(patternSnapshotDescription, volumeID, s.getClusterID()),
 			Permanently: true,
 		},
 	)
