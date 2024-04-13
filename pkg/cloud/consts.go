@@ -34,11 +34,17 @@ const (
 	waitVolumeAttachTimeout = 7 * time.Minute
 	waitVolumeAttachDelay   = 10
 	waitVolumeAttachSteps   = 5
+
+	waitSnapshotActiveTimeout = 5 * time.Minute
+	waitSnapshotActiveDelay   = 10
+	waitSnapshotActiveSteps   = 5
 )
 
 const (
 	VolumeAvailableStatus = "AVAILABLE"
 	VolumeInUseStatus     = "IN-USE"
+
+	SnapshotActiveStatus = "ACTIVE"
 )
 
 var (

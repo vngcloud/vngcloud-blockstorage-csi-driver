@@ -16,6 +16,7 @@ const (
 	volumeCreatingInProgress = "Create volume request for %s is already in progress"
 	// VolumeOperationAlreadyExists is message fmt returned to CO when there is another in-flight call on the given volumeID
 	volumeOperationAlreadyExists = "An operation with the given volume=%q is already in progress"
+	patternSnapshotDescription   = "Snapshot of PersistentVolume %s for vKS cluster %s"
 )
 
 // constants of disk partition suffix
