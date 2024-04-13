@@ -2,9 +2,8 @@ package driver
 
 import (
 	lctx "context"
-	"errors"
+	lerr "errors"
 	lfmt "fmt"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	lstr "strings"
 	ltime "time"
 
@@ -14,21 +13,22 @@ import (
 	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	lsdkSnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
-	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
+	lsdkVolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"k8s.io/klog/v2"
 
-	lcloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
 var (
 	// NewMetadataFunc is a variable for the cloud.NewMetadata function that can
 	// be overwritten in unit tests.
-	NewMetadataFunc = lcloud.NewMetadataService
-	NewCloudFunc    = lcloud.NewCloud
+	NewMetadataFunc = lscloud.NewMetadataService
+	NewCloudFunc    = lscloud.NewCloud
 )
 
 var (
@@ -44,8 +44,8 @@ var (
 )
 
 type controllerService struct {
-	cloud               lcloud.Cloud
-	inFlight            *internal.InFlight
+	cloud               lscloud.Cloud
+	inFlight            *lsinternal.InFlight
 	modifyVolumeManager *modifyVolumeManager
 	driverOptions       *DriverOptions
 
@@ -54,7 +54,7 @@ type controllerService struct {
 
 // newControllerService creates a new controller service it panics if failed to create the service
 func newControllerService(driverOptions *DriverOptions) controllerService {
-	metadata, err := NewMetadataFunc(lcloud.DefaultVServerMetadataClient)
+	metadata, err := NewMetadataFunc(lscloud.DefaultVServerMetadataClient)
 	if err != nil {
 		klog.ErrorS(err, "Could not determine the metadata information for the driver")
 		panic(err)
@@ -68,7 +68,7 @@ func newControllerService(driverOptions *DriverOptions) controllerService {
 
 	return controllerService{
 		cloud:               cloudSrv,
-		inFlight:            internal.NewInFlight(),
+		inFlight:            lsinternal.NewInFlight(),
 		driverOptions:       driverOptions,
 		modifyVolumeManager: newModifyVolumeManager(),
 	}
@@ -190,7 +190,7 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 	volumeID := preq.GetVolumeId()
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volumeID); !ok {
-		msg := lfmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID)
+		msg := lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID)
 		return nil, status.Error(codes.Aborted, msg)
 	}
 	defer s.inFlight.Delete(volumeID)
@@ -217,7 +217,7 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 
 	// Make sure there are no 2 operations on the same volume and node at the same time
 	if !s.inFlight.Insert(volumeID + nodeID) {
-		return nil, status.Error(codes.Aborted, lfmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+		return nil, status.Error(codes.Aborted, lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 
@@ -251,7 +251,7 @@ func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, preq *lc
 	nodeID := preq.GetNodeId()
 
 	if !s.inFlight.Insert(volumeID + nodeID) {
-		return nil, status.Error(codes.Aborted, lfmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+		return nil, status.Error(codes.Aborted, lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 	if volumeID == "" {
@@ -286,14 +286,14 @@ func (s *controllerService) CreateSnapshot(_ lctx.Context, preq *lcsi.CreateSnap
 
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(snapshotName); !ok {
-		msg := lfmt.Sprintf(internal.VolumeOperationAlreadyExistsErrorMsg, snapshotName)
+		msg := lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, snapshotName)
 		return nil, status.Error(codes.Aborted, msg)
 	}
 	defer s.inFlight.Delete(snapshotName)
 
 	snapshot, err := s.cloud.GetVolumeSnapshotByName(volumeID, snapshotName)
 	if err != nil {
-		if !errors.Is(err, lcloud.ErrSnapshotNotFound) {
+		if !lerr.Is(err, lscloud.ErrSnapshotNotFound) {
 			klog.ErrorS(err, "Error looking for the snapshot", "snapshotName", snapshotName)
 			return nil, err
 		}
@@ -361,7 +361,7 @@ func (s *controllerService) ValidateVolumeCapabilities(pctx lctx.Context, preq *
 	}
 
 	if _, err := s.cloud.GetVolume(volumeID); err != nil {
-		if err.Code == lvolV2.ErrVolumeNotFound {
+		if err.Code == lsdkVolV2.ErrVolumeNotFound {
 			return nil, status.Error(codes.NotFound, "Volume not found")
 		}
 
