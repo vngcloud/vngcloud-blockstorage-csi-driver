@@ -477,7 +477,7 @@ func newCreateSnapshotResponse(snapshot *lsdkObj.Snapshot) (*lcsi.CreateSnapshot
 			SourceVolumeId: snapshot.VolumeID,
 			SizeBytes:      snapshot.Size * lsutil.GiB,
 			CreationTime:   timestamppb.New(creationTime),
-			ReadyToUse:     snapshot.Status == lcloud.SnapshotActiveStatus,
+			ReadyToUse:     true,
 		},
 	}, nil
 }
