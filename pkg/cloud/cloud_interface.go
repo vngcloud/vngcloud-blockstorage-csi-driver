@@ -20,4 +20,5 @@ type Cloud interface {
 	GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsdkObj.Snapshot, error)
 	CreateSnapshotFromVolume(pvolID string, popts *lsnapshotV2.CreateOpts) (*lsdkObj.Snapshot, error)
 	DeleteSnapshot(psnapshotID string) error
+	ListSnapshots(pvolID string, ppage int, ppageSize int) (*lsdkObj.SnapshotList, error)
 }

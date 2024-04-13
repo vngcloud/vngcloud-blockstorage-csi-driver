@@ -7,7 +7,7 @@ require (
 	github.com/cuongpiger/joat v0.0.10
 	github.com/spf13/pflag v1.0.5
 	github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0
-	github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240413111959-137d15058f4a
+	github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240413142903-4e6ae1fe7c6c
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/otel v1.24.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0

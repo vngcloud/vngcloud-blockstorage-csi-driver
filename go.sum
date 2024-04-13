@@ -147,6 +147,8 @@ github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0 h1:CUfbN11yjZdndwOXtjWa/
 github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0/go.mod h1:6fFAm1DK2qsdQmQub4Ps5jBFP/LQqLV/SEUf96j51u4=
 github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240413111959-137d15058f4a h1:qjM9mzkAil2KWcXVlS7SG+3JtEip3ZRxvlE/iBBRUMo=
 github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240413111959-137d15058f4a/go.mod h1:ooZo+kYuaDbn1HzS8KUEORKGj68yEtDx1XLJU06Xw4k=
+github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240413142903-4e6ae1fe7c6c h1:fbopFm2Ujc52y8Tjdq6MCrY3vMyXANp7hWwAPTki1iw=
+github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240413142903-4e6ae1fe7c6c/go.mod h1:ooZo+kYuaDbn1HzS8KUEORKGj68yEtDx1XLJU06Xw4k=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=

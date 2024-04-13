@@ -2,6 +2,8 @@ package cloud
 
 import (
 	"fmt"
+	"strings"
+
 	ljutils "github.com/cuongpiger/joat/utils"
 	ljwait "github.com/cuongpiger/joat/utils/exponential-backoff"
 	"github.com/vngcloud/vngcloud-go-sdk/client"
@@ -20,6 +22,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
+	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
 func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc MetadataService) (Cloud, error) {
@@ -211,7 +214,36 @@ func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) erro
 }
 
 func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {
-	return 0, nil
+	newSizeGiB := lsutil.RoundUpGiB(newSizeBytes)
+	if newSizeBytes != 0 {
+		klog.V(4).InfoS("Received Resize and/or Modify Disk request", "volumeID", volumeID, "newSizeBytes", newSizeBytes, "options", options)
+	} else {
+		volume, err1 := s.GetVolume(volumeID)
+		if err1 != nil {
+			return 0, err1.Error
+		}
+
+		newSizeGiB = int64(volume.Size)
+	}
+
+	needsModification, volumeSize, err := s.validateModifyVolume(volumeID, newSizeGiB, options)
+	if err != nil || !needsModification {
+		return volumeSize, err
+	}
+
+	opts := lvolAct.NewResizeOpts(s.getProjectID(), options.VolumeType, volumeID, uint64(newSizeGiB))
+	_, err = lvolAct.Resize(s.volume, opts)
+	if err != nil {
+		return 0, err
+	}
+
+	err = s.waitVolumeActive(volumeID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Perform one final check on the volume
+	return s.checkDesiredState(volumeID, newSizeGiB, options)
 }
 
 func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
@@ -264,6 +296,16 @@ func (s *cloud) DeleteSnapshot(psnapshotID string) error {
 	}
 
 	return nil
+}
+
+func (s *cloud) ListSnapshots(pvolID string, ppage int, ppageSize int) (*lsdkObj.SnapshotList, error) {
+	opts := lsnapshotV2.NewListVolumeOpts(s.getProjectID(), pvolID, ppage, ppageSize)
+	resp, err := lsnapshotV2.ListVolumeSnapshot(s.volume, opts)
+	if err != nil {
+		return nil, err.Error
+	}
+
+	return resp, nil
 }
 
 func (s *cloud) waitVolumeActive(pvolID string) error {
@@ -332,4 +374,63 @@ func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 
 func (s *cloud) getProjectID() string {
 	return s.extraInfo.ProjectID
+}
+
+func (s *cloud) validateModifyVolume(volumeID string, newSizeGiB int64, options *ModifyDiskOptions) (bool, int64, error) {
+	volume, err := s.GetVolume(volumeID)
+	if err != nil {
+		return true, 0, err.Error
+	}
+
+	// At this point, we know we are starting a new volume modification
+	// If we're asked to modify a volume to its current state, ignore the request and immediately return a success
+	if !needsVolumeModification(volume, newSizeGiB, options) {
+		klog.V(5).InfoS("[Debug] Skipping modification for volume due to matching stats", "volumeID", volumeID)
+		// Wait for any existing modifications to prevent race conditions where DescribeVolume(s) returns the new
+		// state before the volume is actually finished modifying
+		err2 := s.waitVolumeActive(volumeID)
+		if err != nil {
+			return true, int64(volume.Size), err2
+		}
+
+		returnGiB, returnErr := s.checkDesiredState(volumeID, newSizeGiB, options)
+		return false, returnGiB, returnErr
+	}
+
+	return true, 0, nil
+}
+
+func (s *cloud) checkDesiredState(volumeID string, desiredSizeGiB int64, options *ModifyDiskOptions) (int64, error) {
+	volume, err := s.GetVolume(volumeID)
+	if err != nil {
+		return 0, err.Error
+	}
+
+	// AWS resizes in chunks of GiB (not GB)
+	realSizeGiB := int64(volume.Size)
+
+	// Check if there is a mismatch between the requested modification and the current volume
+	// If there is, the volume is still modifying and we should not return a success
+	if realSizeGiB < desiredSizeGiB {
+		return realSizeGiB, fmt.Errorf("volume %q is still being expanded to %d size", volumeID, desiredSizeGiB)
+	} else if options.VolumeType != "" && !strings.EqualFold(volume.VolumeTypeID, options.VolumeType) {
+		return realSizeGiB, fmt.Errorf("volume %q is still being modified to type %q", volumeID, options.VolumeType)
+	}
+
+	return realSizeGiB, nil
+}
+
+func needsVolumeModification(volume *lsdkObj.Volume, newSizeGiB int64, options *ModifyDiskOptions) bool {
+	oldSizeGiB := int64(volume.Size)
+	needsModification := false
+
+	if oldSizeGiB < newSizeGiB {
+		needsModification = true
+	}
+
+	if options.VolumeType != "" && !strings.EqualFold(volume.VolumeTypeID, options.VolumeType) {
+		needsModification = true
+	}
+
+	return needsModification
 }

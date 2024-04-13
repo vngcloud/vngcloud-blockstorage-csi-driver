@@ -109,7 +109,7 @@ func parseModifyVolumeParameters(params map[string]string) (*cloud.ModifyDiskOpt
 
 	for key, value := range params {
 		switch key {
-		case ModificationKeyVolumeType:
+		case AnnotationModificationKeyVolumeType:
 			options.VolumeType = value
 		}
 	}

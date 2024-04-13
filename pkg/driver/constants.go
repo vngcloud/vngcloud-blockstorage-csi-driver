@@ -80,6 +80,8 @@ const (
 
 	// IsPoc is a key to determine if the volume is a POC volume
 	IsPoc = "ispoc"
+
+	AnnotationModificationKeyVolumeType = "volume-type"
 )
 
 var (

@@ -4,6 +4,7 @@ import (
 	lctx "context"
 	lerr "errors"
 	lfmt "fmt"
+	"strconv"
 	lstr "strings"
 	ltime "time"
 
@@ -344,8 +345,21 @@ func (s *controllerService) DeleteSnapshot(_ lctx.Context, preq *lcsi.DeleteSnap
 	return &lcsi.DeleteSnapshotResponse{}, nil
 }
 
-func (s *controllerService) ListSnapshots(ctx lctx.Context, req *lcsi.ListSnapshotsRequest) (*lcsi.ListSnapshotsResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "ListSnapshots is not yet implemented")
+func (s *controllerService) ListSnapshots(_ lctx.Context, preq *lcsi.ListSnapshotsRequest) (*lcsi.ListSnapshotsResponse, error) {
+	klog.V(4).InfoS("ListSnapshots: called", "args", preq)
+
+	volumeID := preq.GetSourceVolumeId()
+	nextToken := parsePage(preq.GetStartingToken())
+	maxEntries := int(preq.GetMaxEntries())
+
+	cloudSnapshots, err := s.cloud.ListSnapshots(volumeID, nextToken, maxEntries)
+	if err != nil {
+		klog.ErrorS(err, "ListSnapshots: Error listing snapshots", "volumeID", volumeID)
+		return nil, status.Errorf(codes.Internal, "Could not list snapshots: %v", err)
+	}
+
+	response := newListSnapshotsResponse(cloudSnapshots)
+	return response, nil
 }
 
 func (s *controllerService) ValidateVolumeCapabilities(pctx lctx.Context, preq *lcsi.ValidateVolumeCapabilitiesRequest) (*lcsi.ValidateVolumeCapabilitiesResponse, error) {
@@ -463,17 +477,6 @@ func (s *controllerService) getClusterID() string {
 	return s.driverOptions.clusterID
 }
 
-func isAttachment(vmId *string) bool {
-	if vmId == nil {
-		return false
-	}
-	return true
-}
-
-const (
-	ModificationKeyVolumeType = "volumeType"
-)
-
 func newCreateVolumeResponse(disk *lsdkObj.Volume, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
 	//var src *lcsi.VolumeContentSource
 
@@ -501,4 +504,52 @@ func newCreateSnapshotResponse(snapshot *lsdkObj.Snapshot) (*lcsi.CreateSnapshot
 			ReadyToUse:     true,
 		},
 	}, nil
+}
+
+func newListSnapshotsResponse(psnapshotList *lsdkObj.SnapshotList) *lcsi.ListSnapshotsResponse {
+	var entries []*lcsi.ListSnapshotsResponse_Entry
+	for _, snapshot := range psnapshotList.Items {
+		snapshotResponseEntry := newListSnapshotsResponseEntry(&snapshot)
+		entries = append(entries, snapshotResponseEntry)
+	}
+
+	nextToken := ""
+	if psnapshotList.Page < psnapshotList.TotalPages {
+		nextToken = strconv.Itoa(psnapshotList.Page + 1)
+	}
+
+	return &lcsi.ListSnapshotsResponse{
+		Entries:   entries,
+		NextToken: nextToken,
+	}
+}
+
+func newListSnapshotsResponseEntry(snapshot *lsdkObj.Snapshot) *lcsi.ListSnapshotsResponse_Entry {
+	creationTime, err := ltime.Parse("2006-01-02T15:04:05.000-07:00", snapshot.CreatedAt)
+	if err != nil {
+		creationTime = ltime.Now()
+	}
+
+	return &lcsi.ListSnapshotsResponse_Entry{
+		Snapshot: &lcsi.Snapshot{
+			SnapshotId:     snapshot.ID,
+			SourceVolumeId: snapshot.VolumeID,
+			SizeBytes:      snapshot.Size * lsutil.GiB,
+			CreationTime:   timestamppb.New(creationTime),
+			ReadyToUse:     snapshot.Status == lscloud.SnapshotActiveStatus,
+		},
+	}
+}
+
+func parsePage(nextToken string) int {
+	if nextToken == "" {
+		return 1
+	}
+
+	page, err := strconv.Atoi(nextToken)
+	if err != nil {
+		return 1
+	}
+
+	return page
 }
