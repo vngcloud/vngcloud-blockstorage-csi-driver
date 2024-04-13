@@ -10,6 +10,8 @@ const (
 	DefaultCSIEndpoint                       = "unix://tmp/csi.sock"
 	DefaultModifyVolumeRequestHandlerTimeout = 30 * ltime.Second
 	AgentNotReadyNodeTaintKey                = "bs.csi.vngcloud.vn/agent-not-ready"
+
+	DefaultTimeoutModifyChannel = 10 * ltime.Minute
 )
 
 const (
