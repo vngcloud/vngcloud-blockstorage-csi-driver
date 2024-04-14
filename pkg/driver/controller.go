@@ -438,7 +438,7 @@ func (s *controllerService) ControllerExpandVolume(_ lctx.Context, preq *lcsi.Co
 
 	llog.V(5).InfoS("ControllerExpandVolume: expanding volume", "volumeID", volumeID, "newSize", volSizeGB)
 	// Expand the volume
-	err1 := s.cloud.ExpandVolume(volume.VolumeTypeID, volumeID, volSizeGB)
+	err1 := s.cloud.ExpandVolume(volumeID, volume.VolumeTypeID, volSizeGB)
 	if err1 != nil {
 		llog.ErrorS(err1, "ControllerExpandVolume: failed to expand volume", "volumeID", volumeID)
 		return nil, ErrFailedToExpandVolume(volumeID, int64(volSizeGB))
