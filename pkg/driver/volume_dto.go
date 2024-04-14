@@ -163,6 +163,13 @@ func (s *CreateVolumeRequest) ToSdkCreateVolumeOpts(pdo *DriverOptions) *lsdkVol
 	opts.EncryptionType = s.EncryptedAlgorithm
 	opts.Tags = s.prepareTag(pdo.GetTagKeyLength(), pdo.GetTagValueLength())
 
+	if s.SnapshotID != "" {
+		opts.ConfigureVolumeRestore = &lsdkVolV2.ConfigureVolumeRestore{
+			SnapshotVolumePointId: s.SnapshotID,
+			VolumeTypeId:          s.VolumeTypeID,
+		}
+	}
+
 	return opts
 }
 
@@ -193,6 +200,13 @@ func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []lsdkVolV2.CreateOptsT
 		vts = append(vts, lsdkVolV2.CreateOptsTag{
 			Key:   ljoat.Truncate(lscloud.VksPvNameTagKey, ptkl),
 			Value: ljoat.Truncate(s.PvNameTag, ptvl),
+		})
+	}
+
+	if s.SnapshotID != "" {
+		vts = append(vts, lsdkVolV2.CreateOptsTag{
+			Key:   ljoat.Truncate(lscloud.VksSnapshotIdTagKey, ptkl),
+			Value: ljoat.Truncate(s.SnapshotID, ptvl),
 		})
 	}
 

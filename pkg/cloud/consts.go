@@ -13,6 +13,7 @@ const (
 	VksPvcNamespaceTagKey = "vks-namespace"
 	VksPvNameTagKey       = "vks-pv-name"
 	VksPvcNameTagKey      = "vks-pvc-name"
+	VksSnapshotIdTagKey   = "vks-snapshot-id"
 )
 
 const (
