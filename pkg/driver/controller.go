@@ -74,12 +74,12 @@ func newControllerService(driverOptions *DriverOptions) controllerService {
 	}
 }
 
-func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVolumeRequest) (*lcsi.CreateVolumeResponse, error) {
+func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolumeRequest) (*lcsi.CreateVolumeResponse, error) {
 	klog.V(5).InfoS("CreateVolume: called", "preq", *preq)
 
 	// Validate the create volume request
 	if err := validateCreateVolumeRequest(preq); err != nil {
-		klog.Errorf("CreateVolume: invalid request: %v", err)
+		klog.ErrorS(err, "CreateVolume: invalid request")
 		return nil, err
 	}
 
@@ -91,8 +91,8 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volName); !ok {
-		msg := lfmt.Sprintf(volumeCreatingInProgress, volName)
-		return nil, status.Error(codes.Aborted, msg)
+		klog.V(5).InfoS("CreateVolume: volume is already in-flight", "volumeName", volName)
+		return nil, ErrVolumeIsCreating(volName)
 	}
 	defer s.inFlight.Delete(volName)
 
@@ -112,27 +112,27 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 			cvr = cvr.WithPvNameTag(pv)
 		case BlockSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse blockSize (%s)", pv)
+				return nil, ErrCanNotParseRequestArguments(BlockSizeKey, pv)
 			}
 			cvr = cvr.WithBlockSize(pv)
 		case InodeSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse inodeSize (%s)", pv)
+				return nil, ErrCanNotParseRequestArguments(InodeSizeKey, pv)
 			}
 			cvr = cvr.WithInodeSize(pv)
 		case BytesPerInodeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse bytesPerInode (%s)", pv)
+				return nil, ErrCanNotParseRequestArguments(BytesPerInodeKey, pv)
 			}
 			cvr = cvr.WithBytesPerInode(pv)
 		case NumberOfInodesKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse numberOfInodes (%s)", pv)
+				return nil, ErrCanNotParseRequestArguments(NumberOfInodesKey, pv)
 			}
 			cvr = cvr.WithNumberOfInodes(pv)
 		case Ext4ClusterSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
-				return nil, status.Errorf(codes.InvalidArgument, "Could not parse ext4ClusterSize (%s)", pv)
+				return nil, ErrCanNotParseRequestArguments(Ext4ClusterSizeKey, pv)
 			}
 			cvr = cvr.WithExt4ClusterSize(pv)
 		case Ext4BigAllocKey:
@@ -162,7 +162,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 
 	respCtx, err := cvr.ToResponseContext(volCap)
 	if err != nil {
-		klog.Errorf("CreateVolume: failed to parse response context: %v", err)
+		klog.ErrorS(err, "CreateVolume: failed to parse response context", "volumeID", volName)
 		return nil, err
 	}
 
@@ -174,7 +174,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 
 	resp, err := s.cloud.CreateVolume(cvr.ToSdkCreateVolumeOpts(s.driverOptions))
 	if err != nil {
-		klog.Errorf("CreateVolume: failed to create volume: %v", err)
+		klog.ErrorS(err, "CreateVolume: failed to create volume", "volumeID", volName)
 		return nil, err
 	}
 

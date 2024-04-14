@@ -19,4 +19,14 @@ var (
 	ErrSnapshotIsNil                   = lstt.Error(lcodes.InvalidArgument, "Error retrieving snapshot from the volumeContentSource")
 	ErrSnapshotNameNotProvided         = lstt.Error(lcodes.InvalidArgument, "Snapshot name not provided")
 	ErrSnapshotSourceVolumeNotProvided = lstt.Error(lcodes.InvalidArgument, "Snapshot volume source ID not provided")
+
+	ErrCanNotParseRequestArguments = func(pargument, pvalue string) error {
+		return lstt.Errorf(lcodes.InvalidArgument, "Could not parse %s (%s)", pargument, pvalue)
+	}
+)
+
+var (
+	ErrVolumeIsCreating = func(pvolumeID string) error {
+		return lstt.Errorf(lcodes.Aborted, "Create volume request for %s is already in progress", pvolumeID)
+	}
 )
