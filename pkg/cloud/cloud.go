@@ -238,7 +238,7 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 	return s.checkDesiredState(volumeID, newSizeGiB, options)
 }
 
-func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error {
+func (s *cloud) ExpandVolume(volumeID, volumeTypeID string, newSize uint64) error {
 	opts := lvolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
 	_, err := lvolAct.Resize(s.volume, opts)
 
