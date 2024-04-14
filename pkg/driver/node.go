@@ -1,9 +1,10 @@
 package driver
 
 import (
-	"context"
+	lctx "context"
 	"encoding/json"
 	"fmt"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"os"
@@ -21,37 +22,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 )
 
-var (
-	// taintRemovalInitialDelay is the initial delay for node taint removal
-	taintRemovalInitialDelay = 1 * time.Second
-
-	// taintRemovalBackoff is the exponential backoff configuration for node taint removal
-	taintRemovalBackoff = wait.Backoff{
-		Duration: 500 * time.Millisecond,
-		Factor:   2,
-		Steps:    10, // Max delay = 0.5 * 2^9 = ~4 minutes
-	}
-)
-
-const (
-	defaultFsType = FSTypeExt4
-)
-
-var (
-	ValidFSTypes = map[string]struct{}{
-		FSTypeExt2: {},
-		FSTypeExt3: {},
-		FSTypeExt4: {},
-		FSTypeXfs:  {},
-		FSTypeNtfs: {},
-	}
-)
-
-// Struct for JSON patch operations
 type JSONPatch struct {
 	OP    string      `json:"op,omitempty"`
 	Path  string      `json:"path,omitempty"`
@@ -60,18 +34,18 @@ type JSONPatch struct {
 
 // nodeService represents the node service of CSI driver
 type nodeService struct {
-	metadata         cloud.MetadataService
+	metadata         lscloud.MetadataService
 	mounter          Mounter
 	deviceIdentifier DeviceIdentifier
-	inFlight         *internal.InFlight
+	inFlight         *lsinternal.InFlight
 	driverOptions    *DriverOptions
 }
 
 // newNodeService creates a new node service
 // it panics if failed to create the service
 func newNodeService(driverOptions *DriverOptions) nodeService {
-	klog.V(5).InfoS("[Debug] Retrieving node info from metadata service")
-	metadata, err := cloud.NewMetadataService(cloud.DefaultVServerMetadataClient)
+	klog.V(5).Infof("Retrieving node info from metadata service")
+	metadata, err := lscloud.NewMetadataService(lscloud.DefaultVServerMetadataClient)
 	if err != nil {
 		panic(err)
 	}
@@ -84,20 +58,20 @@ func newNodeService(driverOptions *DriverOptions) nodeService {
 	// Remove taint from node to indicate driver startup success
 	// This is done at the last possible moment to prevent race conditions or false positive removals
 	time.AfterFunc(taintRemovalInitialDelay, func() {
-		removeTaintInBackground(cloud.DefaultKubernetesAPIClient, removeNotReadyTaint)
+		removeTaintInBackground(lscloud.DefaultKubernetesAPIClient, removeNotReadyTaint)
 	})
 
 	return nodeService{
 		metadata:         metadata,
 		mounter:          nodeMounter,
 		deviceIdentifier: newNodeDeviceIdentifier(),
-		inFlight:         internal.NewInFlight(),
+		inFlight:         lsinternal.NewInFlight(),
 		driverOptions:    driverOptions,
 	}
 }
 
 // removeTaintInBackground is a goroutine that retries removeNotReadyTaint with exponential backoff
-func removeTaintInBackground(k8sClient cloud.KubernetesAPIClient, removalFunc func(cloud.KubernetesAPIClient) error) {
+func removeTaintInBackground(k8sClient lscloud.KubernetesAPIClient, removalFunc func(lscloud.KubernetesAPIClient) error) {
 	backoffErr := wait.ExponentialBackoff(taintRemovalBackoff, func() (bool, error) {
 		err := removalFunc(k8sClient)
 		if err != nil {
@@ -112,10 +86,7 @@ func removeTaintInBackground(k8sClient cloud.KubernetesAPIClient, removalFunc fu
 	}
 }
 
-// removeNotReadyTaint removes the taint ebs.csi.aws.com/agent-not-ready from the local node
-// This taint can be optionally applied by users to prevent startup race conditions such as
-// https://github.com/kubernetes/kubernetes/issues/95911
-func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
+func removeNotReadyTaint(k8sClient lscloud.KubernetesAPIClient) error {
 	nodeName := os.Getenv("CSI_NODE_NAME")
 	if nodeName == "" {
 		klog.V(4).InfoS("CSI_NODE_NAME missing, skipping taint removal")
@@ -128,7 +99,7 @@ func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
 		return nil //lint:ignore nilerr If there are no k8s credentials, treat that as a soft failure
 	}
 
-	node, err := clientset.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	node, err := clientset.CoreV1().Nodes().Get(lctx.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -170,7 +141,7 @@ func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
 		return err
 	}
 
-	_, err = clientset.CoreV1().Nodes().Patch(context.Background(), nodeName, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
+	_, err = clientset.CoreV1().Nodes().Patch(lctx.Background(), nodeName, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return err
 	}
@@ -178,30 +149,30 @@ func removeNotReadyTaint(k8sClient cloud.KubernetesAPIClient) error {
 	return nil
 }
 
-func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVolumeRequest) (*lcsi.NodeStageVolumeResponse, error) {
-	klog.V(4).InfoS("NodeStageVolume: called", "args", *req)
+func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolumeRequest) (*lcsi.NodeStageVolumeResponse, error) {
+	klog.V(4).InfoS("NodeStageVolume: called", "preq", *preq)
 
-	volumeID := req.GetVolumeId()
+	volumeID := preq.GetVolumeId()
 	if len(volumeID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+		return nil, ErrVolumeIDNotProvided
 	}
 
-	target := req.GetStagingTargetPath()
+	target := preq.GetStagingTargetPath()
 	if len(target) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
+		return nil, ErrStagingTargetPathNotProvided
 	}
 
-	volCap := req.GetVolumeCapability()
+	volCap := preq.GetVolumeCapability()
 	if volCap == nil {
-		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
+		return nil, ErrVolumeCapabilitiesNotProvided
 	}
 
 	if !isValidVolumeCapabilities([]*lcsi.VolumeCapability{volCap}) {
-		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
+		return nil, ErrVolumeCapabilitiesNotSupported
 	}
-	volumeContext := req.GetVolumeContext()
+	volumeContext := preq.GetVolumeContext()
 	if isValid := isValidVolumeContext(volumeContext); !isValid {
-		return nil, status.Error(codes.InvalidArgument, "Volume Attribute is not valid")
+		return nil, ErrVolumeAttributesInvalid
 	}
 
 	// If the access type is block, do nothing for stage
@@ -212,7 +183,7 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 
 	mountVolume := volCap.GetMount()
 	if mountVolume == nil {
-		return nil, status.Error(codes.InvalidArgument, "NodeStageVolume: mount is nil within volume capability")
+		return nil, ErrMountIsNil
 	}
 
 	fsType := mountVolume.GetFsType()
@@ -222,10 +193,10 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 
 	_, ok := ValidFSTypes[strings.ToLower(fsType)]
 	if !ok {
-		return nil, status.Errorf(codes.InvalidArgument, "NodeStageVolume: invalid fstype %s", fsType)
+		return nil, ErrInvalidFstype(fsType)
 	}
 
-	context := req.GetVolumeContext()
+	context := preq.GetVolumeContext()
 
 	blockSize, err := recheckFormattingOptionParameter(context, BlockSizeKey, FileSystemConfigs, fsType)
 	if err != nil {
@@ -262,7 +233,7 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 		s.inFlight.Delete(volumeID)
 	}()
 
-	devicePath, ok := req.GetPublishContext()[DevicePathKey]
+	devicePath, ok := preq.GetPublishContext()[DevicePathKey]
 	if !ok {
 		return nil, status.Error(codes.InvalidArgument, "Device path not provided")
 	}
@@ -343,7 +314,7 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 
 	needResize, err := s.mounter.NeedResize(source, target)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not determine if volume %q (%q) need to be resized:  %v", req.GetVolumeId(), source, err)
+		return nil, status.Errorf(codes.Internal, "Could not determine if volume %q (%q) need to be resized:  %v", preq.GetVolumeId(), source, err)
 	}
 
 	if needResize {
@@ -360,7 +331,7 @@ func (s *nodeService) NodeStageVolume(ctx context.Context, req *lcsi.NodeStageVo
 	return &lcsi.NodeStageVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeUnstageVolume(ctx context.Context, preq *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
+func (s *nodeService) NodeUnstageVolume(ctx lctx.Context, preq *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
 	klog.V(4).InfoS("NodeUnstageVolume: called", "args", *preq)
 	volumeID := preq.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -410,7 +381,7 @@ func (s *nodeService) NodeUnstageVolume(ctx context.Context, preq *lcsi.NodeUnst
 	return &lcsi.NodeUnstageVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodePublishVolume(ctx context.Context, req *lcsi.NodePublishVolumeRequest) (*lcsi.NodePublishVolumeResponse, error) {
+func (s *nodeService) NodePublishVolume(ctx lctx.Context, req *lcsi.NodePublishVolumeRequest) (*lcsi.NodePublishVolumeResponse, error) {
 	klog.V(4).InfoS("NodePublishVolume: called", "args", *req)
 	volumeID := req.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -463,7 +434,7 @@ func (s *nodeService) NodePublishVolume(ctx context.Context, req *lcsi.NodePubli
 	return &lcsi.NodePublishVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeUnpublishVolume(pctx context.Context, preq *lcsi.NodeUnpublishVolumeRequest) (*lcsi.NodeUnpublishVolumeResponse, error) {
+func (s *nodeService) NodeUnpublishVolume(pctx lctx.Context, preq *lcsi.NodeUnpublishVolumeRequest) (*lcsi.NodeUnpublishVolumeResponse, error) {
 	klog.V(4).InfoS("NodeUnpublishVolume: called", "args", *preq)
 	volumeID := preq.GetVolumeId()
 	if len(volumeID) == 0 {
@@ -491,17 +462,17 @@ func (s *nodeService) NodeUnpublishVolume(pctx context.Context, preq *lcsi.NodeU
 	return &lcsi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeGetVolumeStats(_ context.Context, req *lcsi.NodeGetVolumeStatsRequest) (*lcsi.NodeGetVolumeStatsResponse, error) {
+func (s *nodeService) NodeGetVolumeStats(_ lctx.Context, req *lcsi.NodeGetVolumeStatsRequest) (*lcsi.NodeGetVolumeStatsResponse, error) {
 
 	return &lcsi.NodeGetVolumeStatsResponse{}, nil
 }
 
-func (s *nodeService) NodeExpandVolume(ctx context.Context, req *lcsi.NodeExpandVolumeRequest) (*lcsi.NodeExpandVolumeResponse, error) {
+func (s *nodeService) NodeExpandVolume(ctx lctx.Context, req *lcsi.NodeExpandVolumeRequest) (*lcsi.NodeExpandVolumeResponse, error) {
 
 	return &lcsi.NodeExpandVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeGetCapabilities(_ context.Context, req *lcsi.NodeGetCapabilitiesRequest) (*lcsi.NodeGetCapabilitiesResponse, error) {
+func (s *nodeService) NodeGetCapabilities(_ lctx.Context, req *lcsi.NodeGetCapabilitiesRequest) (*lcsi.NodeGetCapabilitiesResponse, error) {
 	klog.V(4).InfoS("NodeGetCapabilities: called", "args", *req)
 	var caps []*lcsi.NodeServiceCapability
 	for _, capa := range nodeCaps {
@@ -517,7 +488,7 @@ func (s *nodeService) NodeGetCapabilities(_ context.Context, req *lcsi.NodeGetCa
 	return &lcsi.NodeGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
-func (s *nodeService) NodeGetInfo(_ context.Context, _ *lcsi.NodeGetInfoRequest) (*lcsi.NodeGetInfoResponse, error) {
+func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*lcsi.NodeGetInfoResponse, error) {
 	nodeUUID := s.metadata.GetInstanceID()
 	zone := s.metadata.GetAvailabilityZone()
 
@@ -535,7 +506,7 @@ func (s *nodeService) NodeGetInfo(_ context.Context, _ *lcsi.NodeGetInfoRequest)
 }
 
 func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
-	csiNode, err := clientset.StorageV1().CSINodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	csiNode, err := clientset.StorageV1().CSINodes().Get(lctx.Background(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("isAllocatableSet: failed to get CSINode for %s: %w", nodeName, err)
 	}

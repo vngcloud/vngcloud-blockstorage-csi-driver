@@ -1,15 +1,14 @@
 package driver
 
 import (
-	"context"
-
-	"github.com/container-storage-interface/spec/lib/go/csi"
-	"k8s.io/klog/v2"
+	lctx "context"
+	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	llog "k8s.io/klog/v2"
 )
 
-func (s *Driver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoRequest) (*csi.GetPluginInfoResponse, error) {
-	klog.V(6).InfoS("GetPluginInfo: called", "args", *req)
-	resp := &csi.GetPluginInfoResponse{
+func (s *Driver) GetPluginInfo(_ lctx.Context, preq *lcsi.GetPluginInfoRequest) (*lcsi.GetPluginInfoResponse, error) {
+	llog.V(6).InfoS("GetPluginInfo: called", "preq", *preq)
+	resp := &lcsi.GetPluginInfoResponse{
 		Name:          DriverName,
 		VendorVersion: driverVersion,
 	}
@@ -17,21 +16,21 @@ func (s *Driver) GetPluginInfo(ctx context.Context, req *csi.GetPluginInfoReques
 	return resp, nil
 }
 
-func (s *Driver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCapabilitiesRequest) (*csi.GetPluginCapabilitiesResponse, error) {
-	klog.V(6).InfoS("GetPluginCapabilities: called", "args", *req)
-	resp := &csi.GetPluginCapabilitiesResponse{
-		Capabilities: []*csi.PluginCapability{
+func (s *Driver) GetPluginCapabilities(_ lctx.Context, preq *lcsi.GetPluginCapabilitiesRequest) (*lcsi.GetPluginCapabilitiesResponse, error) {
+	llog.V(6).InfoS("GetPluginCapabilities: called", "preq", *preq)
+	resp := &lcsi.GetPluginCapabilitiesResponse{
+		Capabilities: []*lcsi.PluginCapability{
 			{
-				Type: &csi.PluginCapability_Service_{
-					Service: &csi.PluginCapability_Service{
-						Type: csi.PluginCapability_Service_CONTROLLER_SERVICE,
+				Type: &lcsi.PluginCapability_Service_{
+					Service: &lcsi.PluginCapability_Service{
+						Type: lcsi.PluginCapability_Service_CONTROLLER_SERVICE,
 					},
 				},
 			},
 			{
-				Type: &csi.PluginCapability_Service_{
-					Service: &csi.PluginCapability_Service{
-						Type: csi.PluginCapability_Service_VOLUME_ACCESSIBILITY_CONSTRAINTS,
+				Type: &lcsi.PluginCapability_Service_{
+					Service: &lcsi.PluginCapability_Service{
+						Type: lcsi.PluginCapability_Service_VOLUME_ACCESSIBILITY_CONSTRAINTS,
 					},
 				},
 			},
@@ -41,7 +40,7 @@ func (s *Driver) GetPluginCapabilities(ctx context.Context, req *csi.GetPluginCa
 	return resp, nil
 }
 
-func (s *Driver) Probe(ctx context.Context, req *csi.ProbeRequest) (*csi.ProbeResponse, error) {
-	klog.V(6).InfoS("Probe: called", "args", *req)
-	return &csi.ProbeResponse{}, nil
+func (s *Driver) Probe(_ lctx.Context, preq *lcsi.ProbeRequest) (*lcsi.ProbeResponse, error) {
+	llog.V(6).InfoS("Probe: called", "preq", *preq)
+	return &lcsi.ProbeResponse{}, nil
 }

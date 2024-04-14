@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-const (
-	DriverName      = "bs.csi.vngcloud.vn"
-	ZoneTopologyKey = "topology." + DriverName + "/zone"
-)
-
 // Mode is the operating mode of the CSI driver.
 type Mode string
 

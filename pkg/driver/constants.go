@@ -2,6 +2,7 @@ package driver
 
 import (
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	"k8s.io/apimachinery/pkg/util/wait"
 	ltime "time"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
@@ -13,6 +14,9 @@ const (
 	AgentNotReadyNodeTaintKey                = "bs.csi.vngcloud.vn/agent-not-ready"
 
 	DefaultTimeoutModifyChannel = 10 * ltime.Minute
+
+	DriverName      = "bs.csi.vngcloud.vn"
+	ZoneTopologyKey = "topology." + DriverName + "/zone"
 )
 
 const (
@@ -29,6 +33,8 @@ const (
 	operationFinishInitDelay = 1 * ltime.Second
 	operationFinishFactor    = 1.1
 	operationFinishSteps     = 15
+
+	defaultFsType = FSTypeExt4
 )
 
 // constants for fstypes
@@ -152,5 +158,27 @@ var (
 		lcsi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
 		lcsi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
 		lcsi.ControllerServiceCapability_RPC_MODIFY_VOLUME,
+	}
+)
+
+var (
+	// taintRemovalInitialDelay is the initial delay for node taint removal
+	taintRemovalInitialDelay = 1 * ltime.Second
+
+	// taintRemovalBackoff is the exponential backoff configuration for node taint removal
+	taintRemovalBackoff = wait.Backoff{
+		Duration: 500 * ltime.Millisecond,
+		Factor:   2,
+		Steps:    10, // Max delay = 0.5 * 2^9 = ~4 minutes
+	}
+)
+
+var (
+	ValidFSTypes = map[string]struct{}{
+		FSTypeExt2: {},
+		FSTypeExt3: {},
+		FSTypeExt4: {},
+		FSTypeXfs:  {},
+		FSTypeNtfs: {},
 	}
 )

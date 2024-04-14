@@ -12,15 +12,21 @@ var (
 	ErrVolumeCapabilitiesNotSupported  = lstt.Error(lcodes.InvalidArgument, "Volume capabilities not supported")
 	ErrCapacityRangeNotProvided        = lstt.Error(lcodes.InvalidArgument, "Capacity range is required")
 	ErrVolumeSizeExceedLimit           = lstt.Error(lcodes.InvalidArgument, "After round-up, volume size exceeds the limit specified")
-	ErrParsingVolumeSize               = lstt.Errorf(lcodes.InvalidArgument, "Could not parse volume size")
-	ErrModifyMutableParam              = lstt.Errorf(lcodes.InvalidArgument, "Invalid mutable parameters")
-	ErrVolumeIDNotProvided             = lstt.Errorf(lcodes.InvalidArgument, "Volume ID not provided")
+	ErrParsingVolumeSize               = lstt.Error(lcodes.InvalidArgument, "Could not parse volume size")
+	ErrModifyMutableParam              = lstt.Error(lcodes.InvalidArgument, "Invalid mutable parameters")
+	ErrVolumeIDNotProvided             = lstt.Error(lcodes.InvalidArgument, "Volume ID not provided")
 	ErrNodeIdNotProvided               = lstt.Error(lcodes.InvalidArgument, "Node ID not provided")
 	ErrStagingTargetPathNotProvided    = lstt.Error(lcodes.InvalidArgument, "Staging target not provided")
 	ErrVolumeContentSourceNotSupported = lstt.Error(lcodes.InvalidArgument, "Unsupported volumeContentSource type")
 	ErrSnapshotIsNil                   = lstt.Error(lcodes.InvalidArgument, "Error retrieving snapshot from the volumeContentSource")
 	ErrSnapshotNameNotProvided         = lstt.Error(lcodes.InvalidArgument, "Snapshot name not provided")
 	ErrSnapshotSourceVolumeNotProvided = lstt.Error(lcodes.InvalidArgument, "Snapshot volume source ID not provided")
+	ErrVolumeAttributesInvalid         = lstt.Error(lcodes.InvalidArgument, "Volume attributes are invalid")
+	ErrMountIsNil                      = lstt.Error(lcodes.InvalidArgument, "Mount is nil within volume capability")
+
+	ErrInvalidFstype = func(pfstype string) error {
+		return lstt.Errorf(lcodes.InvalidArgument, "Invalid fstype (%s)", pfstype)
+	}
 
 	ErrCanNotParseRequestArguments = func(pargument, pvalue string) error {
 		return lstt.Errorf(lcodes.InvalidArgument, "Could not parse %s (%s)", pargument, pvalue)
