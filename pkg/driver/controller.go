@@ -4,13 +4,13 @@ import (
 	lctx "context"
 	lerr "errors"
 	lfmt "fmt"
-	"strconv"
+	lstrconv "strconv"
 	lstr "strings"
 	ltime "time"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	ljoat "github.com/cuongpiger/joat/parser"
-	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
+	lvmrpc "github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	lsdkSnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
@@ -50,7 +50,7 @@ type controllerService struct {
 	modifyVolumeManager *modifyVolumeManager
 	driverOptions       *DriverOptions
 
-	rpc.UnimplementedModifyServer
+	lvmrpc.UnimplementedModifyServer
 }
 
 // newControllerService creates a new controller service it panics if failed to create the service
@@ -61,7 +61,6 @@ func newControllerService(driverOptions *DriverOptions) controllerService {
 		panic(err)
 	}
 
-	klog.Infof("The driver options are: %v", driverOptions)
 	cloudSrv, err := NewCloudFunc(driverOptions.identityURL, driverOptions.vServerURL, driverOptions.clientID, driverOptions.clientSecret, metadata)
 	if err != nil {
 		panic(err)
@@ -416,57 +415,68 @@ func (s *controllerService) ControllerGetCapabilities(ctx lctx.Context, req *lcs
 	return &lcsi.ControllerGetCapabilitiesResponse{Capabilities: caps}, nil
 }
 
-func (s *controllerService) ControllerExpandVolume(ctx lctx.Context, req *lcsi.ControllerExpandVolumeRequest) (*lcsi.ControllerExpandVolumeResponse, error) {
-	klog.V(4).InfoS("ControllerExpandVolume: called", "args", *req)
+func (s *controllerService) ControllerExpandVolume(_ lctx.Context, preq *lcsi.ControllerExpandVolumeRequest) (*lcsi.ControllerExpandVolumeResponse, error) {
+	klog.V(4).Infof("ControllerExpandVolume: called with request %+v", preq)
 
-	volumeID := req.GetVolumeId()
-	if len(volumeID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	volumeID := preq.GetVolumeId()
+	if volumeID == "" {
+		klog.Errorf("ControllerExpandVolume: Volume ID is required")
+		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
 	}
 
-	capRange := req.GetCapacityRange()
+	// check if a request is already in-flight
+	if ok := s.inFlight.Insert(volumeID); !ok {
+		msg := lfmt.Sprintf("ControllerExpandVolume: "+lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID)
+		return nil, status.Error(codes.Aborted, msg)
+	}
+	defer s.inFlight.Delete(volumeID)
+
+	capRange := preq.GetCapacityRange()
 	if capRange == nil {
-		return nil, status.Error(codes.InvalidArgument, "Capacity range not provided")
+		klog.Errorf("ControllerExpandVolume: Capacity range is required")
+		return nil, status.Error(codes.InvalidArgument, "Capacity range is required")
 	}
 
-	newSize := lsutil.RoundUpBytes(capRange.GetRequiredBytes())
+	volSizeBytes := preq.GetCapacityRange().GetRequiredBytes()
+	volSizeGB := uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024))
 	maxVolSize := capRange.GetLimitBytes()
-	if maxVolSize > 0 && maxVolSize < newSize {
-		return nil, status.Error(codes.InvalidArgument, "After round-up, volume size exceeds the limit specified")
+
+	if maxVolSize > 0 && volSizeBytes > maxVolSize {
+		klog.Errorf("ControllerExpandVolume: Requested size %d exceeds limit %d", volSizeBytes, maxVolSize)
+		return nil, status.Error(codes.OutOfRange, lfmt.Sprintf("Requested size %d exceeds limit %d", volSizeBytes, maxVolSize))
 	}
 
-	responseChan := make(chan modifyVolumeResponse)
-	mvr := modifyVolumeRequest{
-		newSize:      newSize,
-		responseChan: responseChan,
+	volume, err := s.cloud.GetVolume(volumeID)
+	if err != nil {
+		klog.ErrorS(err.Error, "ControllerExpandVolume: failed to get volume", "volumeID", volumeID)
+		return nil, status.Error(codes.Internal, lfmt.Sprintf("failed to get volume; ERR: %v", err))
 	}
 
-	// Intentionally not pass in context as we deal with context locally in this method
-	s.addModifyVolumeRequest(volumeID, &mvr) //nolint:contextcheck
-
-	var actualSizeGiB int64
-
-	select {
-	case response := <-responseChan:
-		if response.err != nil {
-			return nil, status.Errorf(codes.Internal, "Could not resize volume %q: %v", volumeID, response.err)
-		} else {
-			actualSizeGiB = response.volumeSize
-		}
-	case <-ctx.Done():
-		return nil, status.Errorf(codes.Internal, "Could not resize volume %q: context cancelled", volumeID)
+	if volume == nil {
+		klog.Errorf("ControllerExpandVolume: volume %s not found", volumeID)
+		return nil, status.Error(codes.NotFound, lfmt.Sprintf("volume %s not found", volumeID))
 	}
 
-	nodeExpansionRequired := true
-	// if this is a raw block device, no expansion should be necessary on the node
-	capa := req.GetVolumeCapability()
-	if capa != nil && capa.GetBlock() != nil {
-		nodeExpansionRequired = false
+	if volume.Size >= volSizeGB {
+		klog.V(2).Infof("ControllerExpandVolume; volume %s already has size %d GiB", volumeID, volume.Size)
+		return &lcsi.ControllerExpandVolumeResponse{
+			CapacityBytes:         int64(volume.Size * 1024 * 1024 * 1024),
+			NodeExpansionRequired: true,
+		}, nil
 	}
 
+	klog.V(5).InfoS("ControllerExpandVolume: expanding volume", "volumeID", volumeID, "newSize", volSizeGB)
+	// Expand the volume
+	err1 := s.cloud.ExpandVolume(volume.VolumeTypeID, volumeID, volSizeGB)
+	if err1 != nil {
+		klog.ErrorS(err1, "ControllerExpandVolume: failed to expand volume", "volumeID", volumeID)
+		return nil, status.Error(codes.Internal, "failed to expand volume")
+	}
+
+	klog.V(4).InfoS("ControllerExpandVolume: volume expanded successfully", "volumeID", volumeID, "newSize", volSizeGB)
 	return &lcsi.ControllerExpandVolumeResponse{
-		CapacityBytes:         lsutil.GiBToBytes(actualSizeGiB),
-		NodeExpansionRequired: nodeExpansionRequired,
+		CapacityBytes:         volSizeBytes,
+		NodeExpansionRequired: true,
 	}, nil
 }
 
@@ -496,28 +506,46 @@ func (s *controllerService) ControllerModifyVolume(ctx lctx.Context, req *lcsi.C
 	return &lcsi.ControllerModifyVolumeResponse{}, nil
 }
 
-func (s *controllerService) GetCSIDriverModificationCapability(_ lctx.Context, _ *rpc.GetCSIDriverModificationCapabilityRequest) (*rpc.GetCSIDriverModificationCapabilityResponse, error) {
-	return &rpc.GetCSIDriverModificationCapabilityResponse{}, nil
+func (s *controllerService) GetCSIDriverModificationCapability(_ lctx.Context, _ *lvmrpc.GetCSIDriverModificationCapabilityRequest) (*lvmrpc.GetCSIDriverModificationCapabilityResponse, error) {
+	return &lvmrpc.GetCSIDriverModificationCapabilityResponse{}, nil
 }
 
-func (s *controllerService) ModifyVolumeProperties(ctx lctx.Context, req *rpc.ModifyVolumePropertiesRequest) (*rpc.ModifyVolumePropertiesResponse, error) {
-	klog.V(4).InfoS("ModifyVolumeProperties called", "req", req)
-	if err := validateModifyVolumePropertiesRequest(req); err != nil {
+func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmrpc.ModifyVolumePropertiesRequest) (*lvmrpc.ModifyVolumePropertiesResponse, error) {
+	klog.V(4).InfoS("ModifyVolumeProperties called", "preq", preq)
+
+	if err := validateModifyVolumePropertiesRequest(preq); err != nil {
 		return nil, err
 	}
 
-	options, err := parseModifyVolumeParameters(req.GetParameters())
+	options, err := parseModifyVolumeParameters(preq.GetParameters())
 	if err != nil {
 		return nil, err
 	}
 
-	name := req.GetName()
-	err = s.modifyVolumeWithCoalescing(ctx, name, options)
-	if err != nil {
-		return nil, err
+	volumeID := preq.GetName()
+
+	// check if a request is already in-flight
+	if ok := s.inFlight.Insert(volumeID); !ok {
+		msg := lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID)
+		return nil, status.Error(codes.Aborted, msg)
+	}
+	defer s.inFlight.Delete(volumeID)
+	volume, err1 := s.cloud.GetVolume(volumeID)
+	if err1 != nil {
+		return nil, status.Error(codes.Internal, lfmt.Sprintf("failed to get volume; ERR: %v", err1))
 	}
 
-	return &rpc.ModifyVolumePropertiesResponse{}, nil
+	if volume.VolumeTypeID == options.VolumeType {
+		klog.V(2).Infof("ModifyVolumeProperties; volume %s already has volume type %s", volumeID, options.VolumeType)
+		return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
+	}
+
+	err = s.cloud.ExpandVolume(volumeID, options.VolumeType, volume.Size)
+	if err != nil {
+		return nil, status.Error(codes.Internal, lfmt.Sprintf("failed to modify volume; ERR: %v", err))
+	}
+
+	return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
 }
 
 func (s *controllerService) getClusterID() string {
@@ -562,7 +590,7 @@ func newListSnapshotsResponse(psnapshotList *lsdkObj.SnapshotList) *lcsi.ListSna
 
 	nextToken := ""
 	if psnapshotList.Page < psnapshotList.TotalPages {
-		nextToken = strconv.Itoa(psnapshotList.Page + 1)
+		nextToken = lstrconv.Itoa(psnapshotList.Page + 1)
 	}
 
 	return &lcsi.ListSnapshotsResponse{
@@ -593,7 +621,7 @@ func parsePage(nextToken string) int {
 		return 1
 	}
 
-	page, err := strconv.Atoi(nextToken)
+	page, err := lstrconv.Atoi(nextToken)
 	if err != nil {
 		return 1
 	}

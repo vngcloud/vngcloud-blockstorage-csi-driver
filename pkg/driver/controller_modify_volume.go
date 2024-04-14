@@ -159,9 +159,13 @@ func (h *modifyVolumeRequestHandler) mergeModifyVolumeRequest(r *modifyVolumeReq
 
 func (s *controllerService) executeModifyVolumeRequest(volumeID string, req *modifyVolumeRequest) (int64, error) {
 	_, cancel := context.WithTimeout(context.Background(), DefaultTimeoutModifyChannel)
-	defer cancel()
+	defer func() {
+		klog.Errorf("Cancel has been called for the context.")
+		cancel()
+	}()
 	actualSizeGiB, err := s.cloud.ResizeOrModifyDisk(volumeID, req.newSize, &req.modifyDiskOptions)
 	if err != nil {
+		klog.ErrorS(err, "Failed to modify volume", "volumeID", volumeID)
 		return 0, err
 	} else {
 		return actualSizeGiB, nil

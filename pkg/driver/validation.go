@@ -161,6 +161,7 @@ func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesReques
 	if name == "" {
 		return status.Error(codes.InvalidArgument, "Volume name not provided")
 	}
+
 	return nil
 }
 

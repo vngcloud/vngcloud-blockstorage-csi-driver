@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"fmt"
+	lset "github.com/cuongpiger/joat/data-structure/set"
 	"strings"
 
 	ljutils "github.com/cuongpiger/joat/utils"
@@ -135,7 +136,7 @@ func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*lsdkObj.Volume, error) 
 		return nil, err
 	}
 
-	err = s.waitVolumeActive(vol.VolumeId)
+	err = s.waitVolumeAchieveStatus(vol.VolumeId, volumeAvailableStatus)
 
 	return vol, err
 }
@@ -228,13 +229,25 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 		return 0, err
 	}
 
-	err = s.waitVolumeActive(volumeID)
+	err = s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
 	if err != nil {
 		return 0, err
 	}
 
 	// Perform one final check on the volume
 	return s.checkDesiredState(volumeID, newSizeGiB, options)
+}
+
+func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error {
+	opts := lvolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
+	_, err := lvolAct.Resize(s.volume, opts)
+
+	if err != nil {
+		return err
+	}
+
+	err = s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
+	return err
 }
 
 func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
@@ -299,14 +312,14 @@ func (s *cloud) ListSnapshots(pvolID string, ppage int, ppageSize int) (*lsdkObj
 	return resp, nil
 }
 
-func (s *cloud) waitVolumeActive(pvolID string) error {
+func (s *cloud) waitVolumeAchieveStatus(pvolID string, pdesiredStatus lset.Set[string]) error {
 	return ljwait.ExponentialBackoff(ljwait.NewBackOff(waitVolumeActiveSteps, waitVolumeActiveDelay, true, waitVolumeActiveTimeout), func() (bool, error) {
 		vol, err := s.GetVolume(pvolID)
 		if err != nil {
 			return false, err.Error
 		}
 
-		if vol.Status == VolumeAvailableStatus {
+		if pdesiredStatus.ContainsOne(vol.Status) {
 			return true, nil
 		}
 
@@ -376,10 +389,9 @@ func (s *cloud) validateModifyVolume(volumeID string, newSizeGiB uint64, options
 	// At this point, we know we are starting a new volume modification
 	// If we're asked to modify a volume to its current state, ignore the request and immediately return a success
 	if !needsVolumeModification(volume, newSizeGiB, options) {
-		klog.V(5).InfoS("[Debug] Skipping modification for volume due to matching stats", "volumeID", volumeID)
 		// Wait for any existing modifications to prevent race conditions where DescribeVolume(s) returns the new
 		// state before the volume is actually finished modifying
-		err2 := s.waitVolumeActive(volumeID)
+		err2 := s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
 		if err != nil {
 			return true, int64(volume.Size), err2
 		}

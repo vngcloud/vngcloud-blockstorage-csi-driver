@@ -53,3 +53,8 @@ const (
 var (
 	errSetDetachIngore = lset.NewSet[lsdkErr.ErrorCode](lsdkEH.ErrCodeVolumeAvailable, lsdkEH.ErrCodeVolumeNotFound)
 )
+
+var (
+	volumeArchivedStatus  = lset.NewSet[string](VolumeAvailableStatus, VolumeInUseStatus)
+	volumeAvailableStatus = lset.NewSet[string](VolumeAvailableStatus)
+)
