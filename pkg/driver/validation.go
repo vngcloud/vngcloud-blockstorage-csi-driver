@@ -159,7 +159,7 @@ func validateControllerUnpublishVolumeRequest(req *lcsi.ControllerUnpublishVolum
 func validateModifyVolumePropertiesRequest(req *rpc.ModifyVolumePropertiesRequest) error {
 	name := req.GetName()
 	if name == "" {
-		return status.Error(codes.InvalidArgument, "Volume name not provided")
+		return ErrVolumeNameNotProvided
 	}
 
 	return nil

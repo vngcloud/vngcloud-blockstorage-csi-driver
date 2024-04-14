@@ -1,6 +1,7 @@
 package driver
 
 import (
+	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	ltime "time"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
@@ -15,7 +16,6 @@ const (
 )
 
 const (
-	volumeCreatingInProgress = "Create volume request for %s is already in progress"
 	// VolumeOperationAlreadyExists is message fmt returned to CO when there is another in-flight call on the given volumeID
 	volumeOperationAlreadyExists = "An operation with the given volume=%q is already in progress"
 	patternSnapshotDescription   = "Snapshot of PersistentVolume %s for vKS cluster %s"
@@ -134,4 +134,23 @@ const (
 const (
 	SingleNodeWriter     = lcsi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER
 	MultiNodeMultiWriter = lcsi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER
+)
+
+var (
+	// NewMetadataFunc is a variable for the cloud.NewMetadata function that can
+	// be overwritten in unit tests.
+	NewMetadataFunc = lscloud.NewMetadataService
+	NewCloudFunc    = lscloud.NewCloud
+)
+
+var (
+	// controllerCaps represents the capability of controller service
+	controllerCaps = []lcsi.ControllerServiceCapability_RPC_Type{
+		lcsi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
+		lcsi.ControllerServiceCapability_RPC_PUBLISH_UNPUBLISH_VOLUME,
+		lcsi.ControllerServiceCapability_RPC_CREATE_DELETE_SNAPSHOT,
+		lcsi.ControllerServiceCapability_RPC_LIST_SNAPSHOTS,
+		lcsi.ControllerServiceCapability_RPC_EXPAND_VOLUME,
+		lcsi.ControllerServiceCapability_RPC_MODIFY_VOLUME,
+	}
 )
