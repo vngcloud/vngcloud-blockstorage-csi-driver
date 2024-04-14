@@ -14,7 +14,6 @@ import (
 	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
 	lsdkSnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
-	lsdkVolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 	lts "google.golang.org/protobuf/types/known/timestamppb"
 	llog "k8s.io/klog/v2"
 
@@ -74,6 +73,22 @@ func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolume
 		return nil, ErrVolumeIsCreating(volName)
 	}
 	defer s.inFlight.Delete(volName)
+
+	vl, err := s.cloud.GetVolumeByName(volName)
+	if err != nil {
+		llog.ErrorS(err, "CreateVolume: failed to get volume", "volumeName", volName)
+		return nil, ErrFailedToListVolumeByName(volName)
+	}
+
+	if vl != nil && len(vl.Items) == 1 {
+		if vl.Items[0].Status != lscloud.VolumeAvailableStatus {
+			llog.V(5).Infof("CreateVolume: volume %s is already in progress", volName)
+			return nil, ErrVolumeIsCreating(volName)
+		}
+	} else if vl != nil && len(vl.Items) > 1 {
+		llog.Errorf("Multiple volumes found with the same name %s", volName)
+		return nil, ErrFailedToListVolumeByName(volName)
+	}
 
 	cvr := NewCreateVolumeRequest()
 	parser, _ := ljoat.GetParser()
@@ -157,7 +172,7 @@ func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolume
 		return nil, err
 	}
 
-	return newCreateVolumeResponse(resp, respCtx), nil
+	return newCreateVolumeResponse(resp, cvr, respCtx), nil
 }
 
 func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
@@ -356,7 +371,7 @@ func (s *controllerService) ValidateVolumeCapabilities(pctx lctx.Context, preq *
 	}
 
 	if _, err := s.cloud.GetVolume(volumeID); err != nil {
-		if err.Code == lsdkVolV2.ErrVolumeNotFound {
+		if err.Code == lsdkEH.ErrCodeVolumeNotFound {
 			return nil, ErrVolumeNotFound(volumeID)
 		}
 
@@ -532,14 +547,24 @@ func (s *controllerService) getClusterID() string {
 	return s.driverOptions.clusterID
 }
 
-func newCreateVolumeResponse(disk *lsdkObj.Volume, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
-	//var src *lcsi.VolumeContentSource
+func newCreateVolumeResponse(disk *lsdkObj.Volume, pcvr *CreateVolumeRequest, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
+	var vcs *lcsi.VolumeContentSource
+	if pcvr.SnapshotID != "" {
+		vcs = &lcsi.VolumeContentSource{
+			Type: &lcsi.VolumeContentSource_Snapshot{
+				Snapshot: &lcsi.VolumeContentSource_SnapshotSource{
+					SnapshotId: pcvr.SnapshotID,
+				},
+			},
+		}
+	}
 
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
 			VolumeId:      disk.VolumeId,
 			CapacityBytes: int64(disk.Size * 1024 * 1024 * 1024),
 			VolumeContext: prespCtx,
+			ContentSource: vcs,
 		},
 	}
 }

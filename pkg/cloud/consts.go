@@ -47,6 +47,7 @@ const (
 const (
 	VolumeAvailableStatus = "AVAILABLE"
 	VolumeInUseStatus     = "IN-USE"
+	VolumeCreatingStatus  = "CREATING"
 
 	SnapshotActiveStatus = "ACTIVE"
 )

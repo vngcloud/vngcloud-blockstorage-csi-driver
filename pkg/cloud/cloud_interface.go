@@ -8,8 +8,8 @@ import (
 )
 
 type Cloud interface {
-	GetVolumesByName(n string) ([]*lsdkObj.Volume, error)
 	CreateVolume(popts *pvolv2.CreateOpts) (*lsdkObj.Volume, error)
+	GetVolumeByName(pvolName string) (*lsdkObj.VolumeList, error)
 	GetVolume(volumeID string) (*lsdkObj.Volume, *lsdkErr.SdkError)
 	DeleteVolume(volID string) error
 	AttachVolume(instanceID, volumeID string) (string, error)

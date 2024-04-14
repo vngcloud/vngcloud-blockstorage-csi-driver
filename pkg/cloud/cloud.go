@@ -2,9 +2,9 @@ package cloud
 
 import (
 	"fmt"
-	lset "github.com/cuongpiger/joat/data-structure/set"
 	"strings"
 
+	lset "github.com/cuongpiger/joat/data-structure/set"
 	ljmath "github.com/cuongpiger/joat/math"
 	ljutils "github.com/cuongpiger/joat/utils"
 	ljwait "github.com/cuongpiger/joat/utils/exponential-backoff"
@@ -13,7 +13,6 @@ import (
 	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
 	lerrEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
 	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
-	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/pagination"
 	lvolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
 	lsnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
 	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
@@ -23,7 +22,6 @@ import (
 	lportal "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/portal/v1"
 	"k8s.io/klog/v2"
 
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/metrics"
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
@@ -107,25 +105,6 @@ type (
 	}
 )
 
-func (s *cloud) GetVolumesByName(name string) ([]*lsdkObj.Volume, error) {
-	klog.Infof("GetVolumesByName; called with name %s", name)
-
-	var vols []*lsdkObj.Volume
-
-	opts := lvolV2.NewListOpts(s.getProjectID(), name, 0, 0)
-	mc := metrics.NewMetricContext("volume", "list")
-	err := lvolV2.List(s.vServerV2, opts).EachPage(func(page pagination.IPage) (bool, error) {
-		vols = append(vols, page.GetBody().(*lvolV2.ListResponse).ToListVolumeObjects()...)
-		return true, nil
-	})
-
-	if mc.ObserveRequest(err) != nil {
-		return nil, err
-	}
-
-	return vols, nil
-}
-
 func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*lsdkObj.Volume, error) {
 	opts := lvolV2.NewCreateOpts(s.getProjectID(), popts)
 	vol, err := lvolV2.Create(s.vServerV2, opts)
@@ -139,17 +118,28 @@ func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*lsdkObj.Volume, error) 
 		return nil, err
 	}
 
-	if vol.Size != popts.Size || vol.VolumeTypeID != popts.VolumeTypeId {
-		newSize := ljmath.MaxNumeric(vol.Size, popts.Size)
-		if err = s.ExpandVolume(vol.VolumeId, popts.VolumeTypeId, newSize); err != nil {
+	newSize := ljmath.MaxNumeric(vol.Size, popts.Size)
+	newVolumeType := popts.VolumeTypeId
+	if vol.Size != newSize || vol.VolumeTypeID != newVolumeType {
+		if err = s.ExpandVolume(vol.VolumeId, newVolumeType, newSize); err != nil {
 			return nil, err
 		}
 
 		vol.Size = newSize
-		vol.VolumeTypeID = popts.VolumeTypeId
+		vol.VolumeTypeID = newVolumeType
 	}
 
 	return vol, err
+}
+
+func (s *cloud) GetVolumeByName(pvolName string) (*lsdkObj.VolumeList, error) {
+	opts := lvolV2.NewListOpts(s.getProjectID(), pvolName, defaultPage, defaultPageSize)
+	vl, err := lvolV2.List(s.vServerV2, opts)
+	if err != nil {
+		return nil, err.Error
+	}
+
+	return vl, nil
 }
 
 func (s *cloud) GetVolume(volumeID string) (*lsdkObj.Volume, *lsdkErr.SdkError) {
@@ -216,9 +206,9 @@ func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 
 func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {
 	newSizeGiB := uint64(lsutil.RoundUpGiB(newSizeBytes))
-	volume, err1 := s.GetVolume(volumeID)
-	if err1 != nil {
-		return 0, err1.Error
+	volume, errSdk := s.GetVolume(volumeID)
+	if errSdk != nil {
+		return 0, errSdk.Error
 	}
 
 	if newSizeGiB < volume.Size {
@@ -235,9 +225,9 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 	}
 
 	opts := lvolAct.NewResizeOpts(s.getProjectID(), options.VolumeType, volumeID, newSizeGiB)
-	_, err = lvolAct.Resize(s.vServerV2, opts)
-	if err != nil {
-		return 0, err
+	_, errSdk = lvolAct.Resize(s.vServerV2, opts)
+	if errSdk != nil {
+		return 0, errSdk.Error
 	}
 
 	_, err = s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
@@ -251,13 +241,17 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 
 func (s *cloud) ExpandVolume(volumeID, volumeTypeID string, newSize uint64) error {
 	opts := lvolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
-	_, err := lvolAct.Resize(s.vServerV2, opts)
+	_, errSdk := lvolAct.Resize(s.vServerV2, opts)
 
-	if err != nil {
-		return err
+	if errSdk != nil {
+		if errSdk.Code == lerrEH.ErrCodeVolumeUnchanged {
+			return nil
+		}
+
+		return errSdk.Error
 	}
 
-	_, err = s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
+	_, err := s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
 	return err
 }
 

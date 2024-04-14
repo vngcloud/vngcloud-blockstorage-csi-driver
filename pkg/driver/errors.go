@@ -89,6 +89,10 @@ var (
 	ErrFailedToDeleteVolume = func(pvolumeID string) error {
 		return lstt.Errorf(lcodes.Internal, "CANNOT delete volume %s", pvolumeID)
 	}
+
+	ErrFailedToListVolumeByName = func(pvolName string) error {
+		return lstt.Errorf(lcodes.Internal, "CANNOT list volume by name %s", pvolName)
+	}
 )
 
 var (
