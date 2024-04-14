@@ -14,7 +14,6 @@ type Cloud interface {
 	DeleteVolume(volID string) error
 	AttachVolume(instanceID, volumeID string) (string, error)
 	DetachVolume(instanceID, volumeID string) error
-	ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error
 	ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error)
 	GetDeviceDiskID(pvolID string) (string, error)
 	GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsdkObj.Snapshot, error)

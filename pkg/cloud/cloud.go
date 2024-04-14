@@ -202,28 +202,19 @@ func (s *cloud) DetachVolume(instanceID, volumeID string) error {
 	return s.waitDiskDetached(volumeID)
 }
 
-func (s *cloud) ExpandVolume(volumeTypeID, volumeID string, newSize uint64) error {
-	opts := lvolAct.NewResizeOpts(s.getProjectID(), volumeTypeID, volumeID, newSize)
-	mc := metrics.NewMetricContext("volume", "extend")
-	_, err := lvolAct.Resize(s.volume, opts)
-	if mc.ObserveRequest(err) != nil {
-		return err
+func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {
+	newSizeGiB := uint64(lsutil.RoundUpGiB(newSizeBytes))
+	volume, err1 := s.GetVolume(volumeID)
+	if err1 != nil {
+		return 0, err1.Error
 	}
 
-	return nil
-}
+	if newSizeGiB < volume.Size {
+		newSizeGiB = volume.Size
+	}
 
-func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {
-	newSizeGiB := lsutil.RoundUpGiB(newSizeBytes)
-	if newSizeBytes != 0 {
-		klog.V(4).InfoS("Received Resize and/or Modify Disk request", "volumeID", volumeID, "newSizeBytes", newSizeBytes, "options", options)
-	} else {
-		volume, err1 := s.GetVolume(volumeID)
-		if err1 != nil {
-			return 0, err1.Error
-		}
-
-		newSizeGiB = int64(volume.Size)
+	if options.VolumeType == "" {
+		options.VolumeType = volume.VolumeTypeID
 	}
 
 	needsModification, volumeSize, err := s.validateModifyVolume(volumeID, newSizeGiB, options)
@@ -231,7 +222,7 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 		return volumeSize, err
 	}
 
-	opts := lvolAct.NewResizeOpts(s.getProjectID(), options.VolumeType, volumeID, uint64(newSizeGiB))
+	opts := lvolAct.NewResizeOpts(s.getProjectID(), options.VolumeType, volumeID, newSizeGiB)
 	_, err = lvolAct.Resize(s.volume, opts)
 	if err != nil {
 		return 0, err
@@ -376,7 +367,7 @@ func (s *cloud) getProjectID() string {
 	return s.extraInfo.ProjectID
 }
 
-func (s *cloud) validateModifyVolume(volumeID string, newSizeGiB int64, options *ModifyDiskOptions) (bool, int64, error) {
+func (s *cloud) validateModifyVolume(volumeID string, newSizeGiB uint64, options *ModifyDiskOptions) (bool, int64, error) {
 	volume, err := s.GetVolume(volumeID)
 	if err != nil {
 		return true, 0, err.Error
@@ -400,7 +391,7 @@ func (s *cloud) validateModifyVolume(volumeID string, newSizeGiB int64, options 
 	return true, 0, nil
 }
 
-func (s *cloud) checkDesiredState(volumeID string, desiredSizeGiB int64, options *ModifyDiskOptions) (int64, error) {
+func (s *cloud) checkDesiredState(volumeID string, desiredSizeGiB uint64, options *ModifyDiskOptions) (int64, error) {
 	volume, err := s.GetVolume(volumeID)
 	if err != nil {
 		return 0, err.Error
@@ -411,7 +402,7 @@ func (s *cloud) checkDesiredState(volumeID string, desiredSizeGiB int64, options
 
 	// Check if there is a mismatch between the requested modification and the current volume
 	// If there is, the volume is still modifying and we should not return a success
-	if realSizeGiB < desiredSizeGiB {
+	if uint64(realSizeGiB) < desiredSizeGiB {
 		return realSizeGiB, fmt.Errorf("volume %q is still being expanded to %d size", volumeID, desiredSizeGiB)
 	} else if options.VolumeType != "" && !strings.EqualFold(volume.VolumeTypeID, options.VolumeType) {
 		return realSizeGiB, fmt.Errorf("volume %q is still being modified to type %q", volumeID, options.VolumeType)
@@ -420,8 +411,8 @@ func (s *cloud) checkDesiredState(volumeID string, desiredSizeGiB int64, options
 	return realSizeGiB, nil
 }
 
-func needsVolumeModification(volume *lsdkObj.Volume, newSizeGiB int64, options *ModifyDiskOptions) bool {
-	oldSizeGiB := int64(volume.Size)
+func needsVolumeModification(volume *lsdkObj.Volume, newSizeGiB uint64, options *ModifyDiskOptions) bool {
+	oldSizeGiB := volume.Size
 	needsModification := false
 
 	if oldSizeGiB < newSizeGiB {

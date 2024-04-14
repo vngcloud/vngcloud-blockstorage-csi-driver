@@ -417,7 +417,57 @@ func (s *controllerService) ControllerGetCapabilities(ctx lctx.Context, req *lcs
 }
 
 func (s *controllerService) ControllerExpandVolume(ctx lctx.Context, req *lcsi.ControllerExpandVolumeRequest) (*lcsi.ControllerExpandVolumeResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "ControllerExpandVolume is not yet implemented")
+	klog.V(4).InfoS("ControllerExpandVolume: called", "args", *req)
+
+	volumeID := req.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+	}
+
+	capRange := req.GetCapacityRange()
+	if capRange == nil {
+		return nil, status.Error(codes.InvalidArgument, "Capacity range not provided")
+	}
+
+	newSize := lsutil.RoundUpBytes(capRange.GetRequiredBytes())
+	maxVolSize := capRange.GetLimitBytes()
+	if maxVolSize > 0 && maxVolSize < newSize {
+		return nil, status.Error(codes.InvalidArgument, "After round-up, volume size exceeds the limit specified")
+	}
+
+	responseChan := make(chan modifyVolumeResponse)
+	mvr := modifyVolumeRequest{
+		newSize:      newSize,
+		responseChan: responseChan,
+	}
+
+	// Intentionally not pass in context as we deal with context locally in this method
+	s.addModifyVolumeRequest(volumeID, &mvr) //nolint:contextcheck
+
+	var actualSizeGiB int64
+
+	select {
+	case response := <-responseChan:
+		if response.err != nil {
+			return nil, status.Errorf(codes.Internal, "Could not resize volume %q: %v", volumeID, response.err)
+		} else {
+			actualSizeGiB = response.volumeSize
+		}
+	case <-ctx.Done():
+		return nil, status.Errorf(codes.Internal, "Could not resize volume %q: context cancelled", volumeID)
+	}
+
+	nodeExpansionRequired := true
+	// if this is a raw block device, no expansion should be necessary on the node
+	capa := req.GetVolumeCapability()
+	if capa != nil && capa.GetBlock() != nil {
+		nodeExpansionRequired = false
+	}
+
+	return &lcsi.ControllerExpandVolumeResponse{
+		CapacityBytes:         lsutil.GiBToBytes(actualSizeGiB),
+		NodeExpansionRequired: nodeExpansionRequired,
+	}, nil
 }
 
 func (s *controllerService) ControllerGetVolume(ctx lctx.Context, req *lcsi.ControllerGetVolumeRequest) (*lcsi.ControllerGetVolumeResponse, error) {
@@ -446,10 +496,7 @@ func (s *controllerService) ControllerModifyVolume(ctx lctx.Context, req *lcsi.C
 	return &lcsi.ControllerModifyVolumeResponse{}, nil
 }
 
-func (s *controllerService) GetCSIDriverModificationCapability(
-	_ lctx.Context,
-	_ *rpc.GetCSIDriverModificationCapabilityRequest,
-) (*rpc.GetCSIDriverModificationCapabilityResponse, error) {
+func (s *controllerService) GetCSIDriverModificationCapability(_ lctx.Context, _ *rpc.GetCSIDriverModificationCapabilityRequest) (*rpc.GetCSIDriverModificationCapabilityResponse, error) {
 	return &rpc.GetCSIDriverModificationCapabilityResponse{}, nil
 }
 
