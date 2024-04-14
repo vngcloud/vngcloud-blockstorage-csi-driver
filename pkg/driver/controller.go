@@ -205,7 +205,7 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 }
 
 func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
-	klog.V(5).InfoS("ControllerPublishVolume: called", "args", *preq)
+	klog.V(5).InfoS("ControllerPublishVolume: called", "preq", *preq)
 
 	if err = validateControllerPublishVolumeRequest(preq); err != nil {
 		klog.ErrorS(err, "ControllerPublishVolume: invalid request")
@@ -217,7 +217,7 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 
 	// Make sure there are no 2 operations on the same volume and node at the same time
 	if !s.inFlight.Insert(volumeID + nodeID) {
-		return nil, status.Error(codes.Aborted, lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 
@@ -227,23 +227,24 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)
 	if err != nil {
 		klog.ErrorS(err, "ControllerPublishVolume; failed to attach volume to instance", "volumeID", volumeID, "nodeID", nodeID)
-		return nil, status.Error(codes.Internal, lfmt.Sprintf("failed to attach volume; ERR: %v", err))
+		return nil, ErrAttachVolume(volumeID, nodeID)
 	}
 
 	devicePath, err := s.cloud.GetDeviceDiskID(volumeID)
 	if err != nil {
-		klog.ErrorS(err, "ControllerPublishVolume; failed to get device path for volume %s", volumeID)
-		return nil, status.Error(codes.Internal, lfmt.Sprintf("failed to get device path for volume; ERR: %v", err))
+		klog.ErrorS(err, "ControllerPublishVolume; failed to get device path for volume", "volumeID", volumeID)
+		return nil, ErrFailedToGetDevicePath(volumeID, nodeID)
 	}
 
 	klog.V(5).InfoS("ControllerPublishVolume; volume attached to instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return newControllerPublishVolumeResponse(devicePath), nil
 }
 
-func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, preq *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
+func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
 	klog.V(4).InfoS("ControllerUnpublishVolume: called", "preq", *preq)
 
 	if err := validateControllerUnpublishVolumeRequest(preq); err != nil {
+		klog.ErrorS(err, "ControllerUnpublishVolume: invalid request")
 		return nil, err
 	}
 
@@ -251,27 +252,28 @@ func (s *controllerService) ControllerUnpublishVolume(ctx lctx.Context, preq *lc
 	nodeID := preq.GetNodeId()
 
 	if !s.inFlight.Insert(volumeID + nodeID) {
-		return nil, status.Error(codes.Aborted, lfmt.Sprintf(lsinternal.VolumeOperationAlreadyExistsErrorMsg, volumeID))
+		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
+
 	if volumeID == "" {
-		klog.Errorf("ControllerUnpublishVolume; VolumeID is required")
-		return nil, status.Error(codes.InvalidArgument, "Volume ID is required")
+		klog.Errorf("ControllerUnpublishVolume: VolumeID is required")
+		return nil, ErrVolumeIDNotProvided
 	}
 
 	_, getErr := s.cloud.GetVolume(volumeID)
 	if getErr != nil && getErr.Code == lsdkEH.ErrCodeVolumeNotFound {
-		klog.InfoS("ControllerUnpublishVolume; volume not found", "volumeID", volumeID)
+		klog.InfoS("ControllerUnpublishVolume: volume not found", "volumeID", volumeID)
 		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
 	err := s.cloud.DetachVolume(nodeID, volumeID)
 	if err != nil {
-		klog.ErrorS(err, "ControllerUnpublishVolume; failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
-		return nil, status.Error(codes.Internal, lfmt.Sprintf("failed to detach volume; ERR: %v", err))
+		klog.ErrorS(err, "ControllerUnpublishVolume: failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
+		return nil, ErrDetachVolume(volumeID, nodeID)
 	}
 
-	klog.V(4).InfoS("ControllerUnpublishVolume; volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
+	klog.V(4).InfoS("ControllerUnpublishVolume: volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 }
 
@@ -612,6 +614,14 @@ func newListSnapshotsResponseEntry(snapshot *lsdkObj.Snapshot) *lcsi.ListSnapsho
 			SizeBytes:      snapshot.Size * lsutil.GiB,
 			CreationTime:   timestamppb.New(creationTime),
 			ReadyToUse:     snapshot.Status == lscloud.SnapshotActiveStatus,
+		},
+	}
+}
+
+func newControllerPublishVolumeResponse(pdevicePath string) *lcsi.ControllerPublishVolumeResponse {
+	return &lcsi.ControllerPublishVolumeResponse{
+		PublishContext: map[string]string{
+			DevicePathKey: pdevicePath,
 		},
 	}
 }
