@@ -26,6 +26,7 @@ var (
 	ErrTargetPathNotProvided           = lstt.Error(lcodes.InvalidArgument, "Target path not provided")
 	ErrVolumeCapabilityNotProvided     = lstt.Error(lcodes.InvalidArgument, "Volume capability not provided")
 	ErrVolumeCapabilityNotSupported    = lstt.Error(lcodes.InvalidArgument, "Volume capability not supported")
+	ErrVolumePathNotProvided           = lstt.Error(lcodes.InvalidArgument, "Volume path not provided")
 
 	ErrInvalidFstype = func(pfstype string) error {
 		return lstt.Errorf(lcodes.InvalidArgument, "Invalid fstype (%s)", pfstype)
@@ -164,11 +165,31 @@ var (
 	ErrCanNotMountAtTarget = func(psource, ptarget string, perr error) error {
 		return lstt.Errorf(lcodes.Internal, "Could not mount %q at %q: %v", psource, ptarget, perr)
 	}
+
+	ErrUnknownStatsOnPath = func(ppath string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Unknown error when stat on %s: %v", ppath, perr)
+	}
+
+	ErrDeterminedBlockDevice = func(ppath string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Failed to determine whether %s is block device: %v", ppath, perr)
+	}
+
+	ErrCanNotGetBlockCapacity = func(ppath string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Failed to get block capacity on path %s: %v", ppath, perr)
+	}
+
+	ErrFailedToGetFsInfo = func(ppath string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "failed to get fs info on path %s: %v", ppath, perr)
+	}
 )
 
 var (
 	ErrVolumeNotFound = func(pvolumeID string) error {
 		return lstt.Errorf(lcodes.NotFound, "Volume %s not found", pvolumeID)
+	}
+
+	ErrPathNotExists = func(ppath string) error {
+		return lstt.Errorf(lcodes.NotFound, "path %s does not exist", ppath)
 	}
 )
 

@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	"golang.org/x/sys/unix"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
@@ -17,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/volume"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
@@ -346,14 +351,136 @@ func (s *nodeService) NodeUnpublishVolume(pctx lctx.Context, preq *lcsi.NodeUnpu
 	return &lcsi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodeGetVolumeStats(_ lctx.Context, req *lcsi.NodeGetVolumeStatsRequest) (*lcsi.NodeGetVolumeStatsResponse, error) {
+func (s *nodeService) NodeGetVolumeStats(_ lctx.Context, preq *lcsi.NodeGetVolumeStatsRequest) (*lcsi.NodeGetVolumeStatsResponse, error) {
+	klog.V(4).InfoS("NodeGetVolumeStats: called", "preq", *preq)
 
-	return &lcsi.NodeGetVolumeStatsResponse{}, nil
+	if len(preq.GetVolumeId()) == 0 {
+		return nil, ErrVolumeIDNotProvided
+	}
+	if len(preq.GetVolumePath()) == 0 {
+		return nil, ErrVolumePathNotProvided
+	}
+
+	exists, err := s.mounter.PathExists(preq.GetVolumePath())
+	if err != nil {
+		return nil, ErrUnknownStatsOnPath(preq.GetVolumePath(), err)
+	}
+	if !exists {
+		return nil, ErrPathNotExists(preq.GetVolumePath())
+	}
+
+	ibv, err := s.IsBlockDevice(preq.GetVolumePath())
+
+	if err != nil {
+		return nil, ErrDeterminedBlockDevice(preq.GetVolumePath(), err)
+	}
+	if ibv {
+		bcap, blockErr := s.getBlockSizeBytes(preq.GetVolumePath())
+		if blockErr != nil {
+			return nil, ErrCanNotGetBlockCapacity(preq.GetVolumePath(), err)
+		}
+		return &lcsi.NodeGetVolumeStatsResponse{
+			Usage: []*lcsi.VolumeUsage{
+				{
+					Unit:  lcsi.VolumeUsage_BYTES,
+					Total: bcap,
+				},
+			},
+		}, nil
+	}
+
+	metricsProvider := volume.NewMetricsStatFS(preq.GetVolumePath())
+
+	metrics, err := metricsProvider.GetMetrics()
+	if err != nil {
+		return nil, ErrFailedToGetFsInfo(preq.GetVolumePath(), err)
+	}
+
+	return &lcsi.NodeGetVolumeStatsResponse{
+		Usage: []*lcsi.VolumeUsage{
+			{
+				Unit:      lcsi.VolumeUsage_BYTES,
+				Available: metrics.Available.AsDec().UnscaledBig().Int64(),
+				Total:     metrics.Capacity.AsDec().UnscaledBig().Int64(),
+				Used:      metrics.Used.AsDec().UnscaledBig().Int64(),
+			},
+			{
+				Unit:      lcsi.VolumeUsage_INODES,
+				Available: metrics.InodesFree.AsDec().UnscaledBig().Int64(),
+				Total:     metrics.Inodes.AsDec().UnscaledBig().Int64(),
+				Used:      metrics.InodesUsed.AsDec().UnscaledBig().Int64(),
+			},
+		},
+	}, nil
 }
 
-func (s *nodeService) NodeExpandVolume(ctx lctx.Context, req *lcsi.NodeExpandVolumeRequest) (*lcsi.NodeExpandVolumeResponse, error) {
+func (s *nodeService) NodeExpandVolume(_ lctx.Context, preq *lcsi.NodeExpandVolumeRequest) (*lcsi.NodeExpandVolumeResponse, error) {
+	klog.V(4).InfoS("NodeExpandVolume: called", "preq", *preq)
+	volumeID := preq.GetVolumeId()
+	if len(volumeID) == 0 {
+		return nil, ErrVolumeIDNotProvided
+	}
+	volumePath := preq.GetVolumePath()
+	if len(volumePath) == 0 {
+		return nil, ErrVolumePathNotProvided
+	}
 
-	return &lcsi.NodeExpandVolumeResponse{}, nil
+	volumeCapability := preq.GetVolumeCapability()
+	// VolumeCapability is optional, if specified, use that as source of truth
+	if volumeCapability != nil {
+		caps := []*lcsi.VolumeCapability{volumeCapability}
+		if !isValidVolumeCapabilities(caps) {
+			return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("VolumeCapability is invalid: %v", volumeCapability))
+		}
+
+		if blk := volumeCapability.GetBlock(); blk != nil {
+			// Noop for Block NodeExpandVolume
+			klog.V(4).InfoS("NodeExpandVolume: called. Since it is a block device, ignoring...", "volumeID", volumeID, "volumePath", volumePath)
+			return &lcsi.NodeExpandVolumeResponse{}, nil
+		}
+	} else {
+		// TODO use util.GenericResizeFS
+		// VolumeCapability is nil, check if volumePath point to a block device
+		ibv, err := s.IsBlockDevice(volumePath)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to determine if volumePath [%v] is a block device: %v", volumePath, err)
+		}
+		if ibv {
+			// Skip resizing for Block NodeExpandVolume
+			bcap, err := s.getBlockSizeBytes(volumePath)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "failed to get block capacity on path %s: %v", preq.GetVolumePath(), err)
+			}
+			klog.V(4).InfoS("NodeExpandVolume: called, since given volumePath is a block device, ignoring...", "volumeID", volumeID, "volumePath", volumePath)
+			return &lcsi.NodeExpandVolumeResponse{CapacityBytes: bcap}, nil
+		}
+	}
+
+	deviceName, _, err := s.mounter.GetDeviceNameFromMount(volumePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get device name from mount %s: %v", volumePath, err)
+	}
+
+	devicePath, err := s.getDevicePath(volumePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to find device path for device name %s for mount %s: %v", deviceName, preq.GetVolumePath(), err)
+	}
+
+	r, err := s.mounter.NewResizeFs()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Error attempting to create new ResizeFs:  %v", err)
+	}
+
+	// TODO: lock per volume ID to have some idempotency
+	if _, err = r.Resize(devicePath, volumePath); err != nil {
+		return nil, status.Errorf(codes.Internal, "Could not resize volume %q (%q):  %v", volumeID, devicePath, err)
+	}
+
+	bcap, err := s.getBlockSizeBytes(devicePath)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get block capacity on path %s: %v", preq.GetVolumePath(), err)
+	}
+	return &lcsi.NodeExpandVolumeResponse{CapacityBytes: bcap}, nil
 }
 
 func (s *nodeService) NodeGetCapabilities(_ lctx.Context, req *lcsi.NodeGetCapabilitiesRequest) (*lcsi.NodeGetCapabilitiesResponse, error) {
@@ -387,6 +514,17 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 			},
 		},
 	}, nil
+}
+
+// IsBlock checks if the given path is a block device
+func (s *nodeService) IsBlockDevice(fullPath string) (bool, error) {
+	var st unix.Stat_t
+	err := unix.Stat(fullPath, &st)
+	if err != nil {
+		return false, err
+	}
+
+	return (st.Mode & unix.S_IFMT) == unix.S_IFBLK, nil
 }
 
 func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeRequest, mountOptions []string) error {
@@ -501,6 +639,20 @@ func (s *nodeService) preparePublishTarget(target string) error {
 		return err
 	}
 	return nil
+}
+
+func (s *nodeService) getBlockSizeBytes(devicePath string) (int64, error) {
+	cmd := s.mounter.(*NodeMounter).Exec.Command("blockdev", "--getsize64", devicePath)
+	output, err := cmd.Output()
+	if err != nil {
+		return -1, fmt.Errorf("error when getting size of block volume at path %s: output: %s, err: %w", devicePath, string(output), err)
+	}
+	strOut := strings.TrimSpace(string(output))
+	gotSizeBytes, err := strconv.ParseInt(strOut, 10, 64)
+	if err != nil {
+		return -1, fmt.Errorf("failed to parse size %s as int", strOut)
+	}
+	return gotSizeBytes, nil
 }
 
 // isMounted checks if target is mounted. It does NOT return an error if target
