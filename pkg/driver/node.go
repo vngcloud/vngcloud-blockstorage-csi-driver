@@ -4,22 +4,19 @@ import (
 	lctx "context"
 	"encoding/json"
 	"fmt"
-	"k8s.io/apimachinery/pkg/util/wait"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	lutilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strings"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
@@ -325,15 +322,15 @@ func (s *nodeService) NodeUnpublishVolume(pctx lctx.Context, preq *lcsi.NodeUnpu
 	klog.V(4).InfoS("NodeUnpublishVolume: called", "args", *preq)
 	volumeID := preq.GetVolumeId()
 	if len(volumeID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+		return nil, ErrVolumeIDNotProvided
 	}
 
 	target := preq.GetTargetPath()
 	if len(target) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Target path not provided")
+		return nil, ErrTargetPathNotProvided
 	}
 	if ok := s.inFlight.Insert(volumeID); !ok {
-		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExists, volumeID)
+		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 	defer func() {
 		klog.V(4).InfoS("NodeUnPublishVolume: volume operation finished", "volumeId", volumeID)
@@ -343,7 +340,7 @@ func (s *nodeService) NodeUnpublishVolume(pctx lctx.Context, preq *lcsi.NodeUnpu
 	klog.V(4).InfoS("NodeUnpublishVolume: unmounting", "target", target)
 	err := s.mounter.Unpublish(target)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not unmount %q: %v", target, err)
+		return nil, ErrCanNotUnmountTarget(target, err)
 	}
 
 	return &lcsi.NodeUnpublishVolumeResponse{}, nil
@@ -392,46 +389,6 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 	}, nil
 }
 
-func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
-	csiNode, err := clientset.StorageV1().CSINodes().Get(lctx.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("isAllocatableSet: failed to get CSINode for %s: %w", nodeName, err)
-	}
-
-	for _, driver := range csiNode.Spec.Drivers {
-		if driver.Name == DriverName {
-			if driver.Allocatable != nil && driver.Allocatable.Count != nil {
-				klog.InfoS("CSINode Allocatable value is set", "nodeName", nodeName, "count", *driver.Allocatable.Count)
-				return nil
-			}
-			return fmt.Errorf("isAllocatableSet: allocatable value not set for driver on node %s", nodeName)
-		}
-	}
-
-	return fmt.Errorf("isAllocatableSet: driver not found on node %s", nodeName)
-}
-
-// collectMountOptions returns array of mount options from
-// VolumeCapability_MountVolume and special mount options for
-// given filesystem.
-func collectMountOptions(fsType string, mntFlags []string) []string {
-	var options []string
-	for _, opt := range mntFlags {
-		if !hasMountOption(options, opt) {
-			options = append(options, opt)
-		}
-	}
-
-	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
-	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
-	if fsType == FSTypeXfs {
-		if !hasMountOption(options, "nouuid") {
-			options = append(options, "nouuid")
-		}
-	}
-	return options
-}
-
 func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeRequest, mountOptions []string) error {
 	target := req.GetTargetPath()
 	volumeContext := req.GetVolumeContext()
@@ -462,7 +419,7 @@ func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeReque
 
 	if !exists {
 		if err = s.mounter.MakeDir(globalMountPath); err != nil {
-			return status.Errorf(codes.Internal, "Could not create dir %q: %v", globalMountPath, err)
+			return ErrCanNotCreateTargetDir(globalMountPath, err)
 		}
 	}
 
@@ -470,24 +427,24 @@ func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeReque
 	klog.V(4).InfoS("NodePublishVolume [block]: making target file", "target", target)
 	if err = s.mounter.MakeFile(target); err != nil {
 		if removeErr := os.Remove(target); removeErr != nil {
-			return status.Errorf(codes.Internal, "Could not remove mount target %q: %v", target, removeErr)
+			return ErrCanNotRemoveMountTarget(target, removeErr)
 		}
-		return status.Errorf(codes.Internal, "Could not create file %q: %v", target, err)
+		return ErrCanNotCreateFile(target, err)
 	}
 
 	//Checking if the target file is already mounted with a device.
 	mounted, err := s.isMounted(source, target)
 	if err != nil {
-		return status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
+		return ErrCheckDiskIsMounted(target, err)
 	}
 
 	if !mounted {
 		klog.V(4).InfoS("NodePublishVolume [block]: mounting", "source", source, "target", target)
 		if err := s.mounter.Mount(source, target, "", mountOptions); err != nil {
 			if removeErr := os.Remove(target); removeErr != nil {
-				return status.Errorf(codes.Internal, "Could not remove mount target %q: %v", target, removeErr)
+				return ErrCanNotRemoveMountTarget(target, removeErr)
 			}
-			return status.Errorf(codes.Internal, "Could not mount %q at %q: %v", source, target, err)
+			return ErrCanNotMountAtTarget(source, target, err)
 		}
 	} else {
 		klog.V(4).InfoS("NodePublishVolume [block]: Target path is already mounted", "target", target)
@@ -508,13 +465,13 @@ func (s *nodeService) nodePublishVolumeForFileSystem(req *lcsi.NodePublishVolume
 	}
 
 	if err := s.preparePublishTarget(target); err != nil {
-		return status.Errorf(codes.Internal, err.Error())
+		return ErrCanNotCreateTargetDir(target, err)
 	}
 
 	//Checking if the target directory is already mounted with a device.
 	mounted, err := s.isMounted(source, target)
 	if err != nil {
-		return status.Errorf(codes.Internal, "Could not check if %q is mounted: %v", target, err)
+		return ErrCheckDiskIsMounted(target, err)
 	}
 
 	if !mounted {
@@ -525,13 +482,13 @@ func (s *nodeService) nodePublishVolumeForFileSystem(req *lcsi.NodePublishVolume
 
 		_, ok := ValidFSTypes[strings.ToLower(fsType)]
 		if !ok {
-			return status.Errorf(codes.InvalidArgument, "NodePublishVolume: invalid fstype %s", fsType)
+			return ErrInvalidFstype(fsType)
 		}
 
 		mountOptions = collectMountOptions(fsType, mountOptions)
 		klog.V(4).InfoS("NodePublishVolume: mounting", "source", source, "target", target, "mountOptions", mountOptions, "fsType", fsType)
 		if err := s.mounter.Mount(source, target, fsType, mountOptions); err != nil {
-			return status.Errorf(codes.Internal, "Could not mount %q at %q: %v", source, target, err)
+			return ErrCanNotMountAtTarget(source, target, err)
 		}
 	}
 
@@ -541,7 +498,7 @@ func (s *nodeService) nodePublishVolumeForFileSystem(req *lcsi.NodePublishVolume
 func (s *nodeService) preparePublishTarget(target string) error {
 	klog.V(4).InfoS("NodePublishVolume: creating dir", "target", target)
 	if err := s.mounter.MakeDir(target); err != nil {
-		return fmt.Errorf("Could not create dir %q: %w", target, err)
+		return err
 	}
 	return nil
 }
@@ -562,12 +519,13 @@ func (s *nodeService) isMounted(_ string, target string) (bool, error) {
 		if pathErr != nil && s.mounter.IsCorruptedMnt(pathErr) {
 			klog.V(4).InfoS("NodePublishVolume: Target path is a corrupted mount. Trying to unmount.", "target", target)
 			if mntErr := s.mounter.Unpublish(target); mntErr != nil {
-				return false, status.Errorf(codes.Internal, "Unable to unmount the target %q : %v", target, mntErr)
+				return false, ErrCanNotUnmountTarget(target, mntErr)
 			}
 			//After successful unmount, the device is ready to be mounted.
 			return false, nil
 		}
-		return false, status.Errorf(codes.Internal, "Could not check if %q is a mount point: %v, %v", target, err, pathErr)
+
+		return false, ErrFailedCheckTargetPathIsMountPoint(target, lutilerrors.NewAggregate([]error{err, pathErr}))
 	}
 
 	// Do not return os.IsNotExist error. Other errors were handled above.  The
@@ -588,18 +546,6 @@ func (s *nodeService) isMounted(_ string, target string) (bool, error) {
 	return !notMnt, nil
 }
 
-func (s *nodeService) appendPartition(devicePath, partition string) string {
-	if partition == "" {
-		return devicePath
-	}
-
-	if strings.HasPrefix(devicePath, "/dev/nvme") {
-		return devicePath + nvmeDiskPartitionSuffix + partition
-	}
-
-	return devicePath + diskPartitionSuffix + partition
-}
-
 func (s *nodeService) getDevicePath(volumeID string) (string, error) {
 	var devicePath string
 	devicePath, err := s.mounter.GetDevicePathBySerialID(volumeID)
@@ -608,62 +554,6 @@ func (s *nodeService) getDevicePath(volumeID string) (string, error) {
 	}
 
 	return devicePath, nil
-}
-
-func verifyVolumeSerialMatch(canonicalDevicePath string, strippedVolumeName string, execRunner func(string, ...string) ([]byte, error)) error {
-	// In some rare cases, a race condition can lead to the /dev/disk/by-id/ symlink becoming out of date
-	// See https://github.com/kubernetes-sigs/aws-ebs-csi-driver/issues/1224 for more info
-	// Attempt to use lsblk to double check that the nvme device selected was the correct volume
-	output, err := execRunner("lsblk", "--noheadings", "--ascii", "--nodeps", "--output", "SERIAL", canonicalDevicePath)
-
-	if err == nil {
-		// Look for an EBS volume ID in the output, compare all matches against what we expect
-		// (in some rare cases there may be multiple matches due to lsblk printing partitions)
-		// If no volume ID is in the output (non-Nitro instances, SBE devices, etc) silently proceed
-		volumeRegex := regexp.MustCompile(`vol[a-z0-9]+`)
-		for _, volume := range volumeRegex.FindAllString(string(output), -1) {
-			klog.V(6).InfoS("Comparing volume serial", "canonicalDevicePath", canonicalDevicePath, "expected", strippedVolumeName, "actual", volume)
-			if volume != strippedVolumeName {
-				return fmt.Errorf("Refusing to mount %s because it claims to be %s but should be %s", canonicalDevicePath, volume, strippedVolumeName)
-			}
-		}
-	} else {
-		// If the command fails (for example, because lsblk is not available), silently ignore the error and proceed
-		klog.V(5).ErrorS(err, "Ignoring lsblk failure", "canonicalDevicePath", canonicalDevicePath, "strippedVolumeName", strippedVolumeName)
-	}
-
-	return nil
-}
-
-// findNvmeVolume looks for the nvme volume with the specified name
-// It follows the symlink (if it exists) and returns the absolute path to the device
-func findNvmeVolume(deviceIdentifier DeviceIdentifier, findName string) (device string, err error) {
-	p := filepath.Join("/dev/disk/by-id/", findName)
-	stat, err := deviceIdentifier.Lstat(p)
-	if err != nil {
-		if os.IsNotExist(err) {
-			klog.V(5).InfoS("[Debug] nvme path not found", "path", p)
-			return "", fmt.Errorf("nvme path %q not found", p)
-		}
-		return "", fmt.Errorf("error getting stat of %q: %w", p, err)
-	}
-
-	if stat.Mode()&os.ModeSymlink != os.ModeSymlink {
-		klog.InfoS("nvme file found, but was not a symlink", "path", p)
-		return "", fmt.Errorf("nvme file %q found, but was not a symlink", p)
-	}
-	// Find the target, resolving to an absolute path
-	// For example, /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0fab1d5e3f72a5e23 -> ../../nvme2n1
-	resolved, err := deviceIdentifier.EvalSymlinks(p)
-	if err != nil {
-		return "", fmt.Errorf("error reading target of symlink %q: %w", p, err)
-	}
-
-	if !strings.HasPrefix(resolved, "/dev") {
-		return "", fmt.Errorf("resolved symlink for %q was unexpected: %q", p, resolved)
-	}
-
-	return resolved, nil
 }
 
 // newNodeService creates a new node service it panics if failed to create the service
@@ -773,12 +663,6 @@ func removeNotReadyTaint(k8sClient lscloud.KubernetesAPIClient) error {
 	return nil
 }
 
-// Helper to inject exec.Comamnd().CombinedOutput() for verifyVolumeSerialMatch
-// Tests use a mocked version that does not actually execute any binaries
-func execRunner(name string, arg ...string) ([]byte, error) {
-	return exec.Command(name, arg...).CombinedOutput()
-}
-
 // hasMountOption returns a boolean indicating whether the given
 // slice already contains a mount option. This is used to prevent
 // passing duplicate option to the mount command.
@@ -789,4 +673,44 @@ func hasMountOption(options []string, opt string) bool {
 		}
 	}
 	return false
+}
+
+func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
+	csiNode, err := clientset.StorageV1().CSINodes().Get(lctx.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("isAllocatableSet: failed to get CSINode for %s: %w", nodeName, err)
+	}
+
+	for _, driver := range csiNode.Spec.Drivers {
+		if driver.Name == DriverName {
+			if driver.Allocatable != nil && driver.Allocatable.Count != nil {
+				klog.InfoS("CSINode Allocatable value is set", "nodeName", nodeName, "count", *driver.Allocatable.Count)
+				return nil
+			}
+			return fmt.Errorf("isAllocatableSet: allocatable value not set for driver on node %s", nodeName)
+		}
+	}
+
+	return fmt.Errorf("isAllocatableSet: driver not found on node %s", nodeName)
+}
+
+// collectMountOptions returns array of mount options from
+// VolumeCapability_MountVolume and special mount options for
+// given filesystem.
+func collectMountOptions(fsType string, mntFlags []string) []string {
+	var options []string
+	for _, opt := range mntFlags {
+		if !hasMountOption(options, opt) {
+			options = append(options, opt)
+		}
+	}
+
+	// By default, xfs does not allow mounting of two volumes with the same filesystem uuid.
+	// Force ignore this uuid to be able to mount volume + its clone / restored snapshot on the same node.
+	if fsType == FSTypeXfs {
+		if !hasMountOption(options, "nouuid") {
+			options = append(options, "nouuid")
+		}
+	}
+	return options
 }

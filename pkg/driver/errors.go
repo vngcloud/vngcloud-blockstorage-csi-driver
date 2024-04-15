@@ -148,6 +148,22 @@ var (
 	ErrFailedToCheckPathExists = func(ppath string, perr error) error {
 		return lstt.Errorf(lcodes.Internal, "Could not check if path exists %q: %v", ppath, perr)
 	}
+
+	ErrCanNotRemoveMountTarget = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not remove mount target %q: %v", ptarget, perr)
+	}
+
+	ErrCanNotCreateFile = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not create file %q: %v", ptarget, perr)
+	}
+
+	ErrCheckDiskIsMounted = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not check if %q is mounted: %v", ptarget, perr)
+	}
+
+	ErrCanNotMountAtTarget = func(psource, ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not mount %q at %q: %v", psource, ptarget, perr)
+	}
 )
 
 var (
