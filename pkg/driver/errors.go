@@ -11,8 +11,6 @@ var (
 	ErrVolumeCapabilitiesNotProvided   = lstt.Error(lcodes.InvalidArgument, "Volume capabilities not provided")
 	ErrVolumeCapabilitiesNotSupported  = lstt.Error(lcodes.InvalidArgument, "Volume capabilities not supported")
 	ErrCapacityRangeNotProvided        = lstt.Error(lcodes.InvalidArgument, "Capacity range is required")
-	ErrVolumeSizeExceedLimit           = lstt.Error(lcodes.InvalidArgument, "After round-up, volume size exceeds the limit specified")
-	ErrParsingVolumeSize               = lstt.Error(lcodes.InvalidArgument, "Could not parse volume size")
 	ErrModifyMutableParam              = lstt.Error(lcodes.InvalidArgument, "Invalid mutable parameters")
 	ErrVolumeIDNotProvided             = lstt.Error(lcodes.InvalidArgument, "Volume ID not provided")
 	ErrNodeIdNotProvided               = lstt.Error(lcodes.InvalidArgument, "Node ID not provided")
@@ -23,6 +21,11 @@ var (
 	ErrSnapshotSourceVolumeNotProvided = lstt.Error(lcodes.InvalidArgument, "Snapshot volume source ID not provided")
 	ErrVolumeAttributesInvalid         = lstt.Error(lcodes.InvalidArgument, "Volume attributes are invalid")
 	ErrMountIsNil                      = lstt.Error(lcodes.InvalidArgument, "Mount is nil within volume capability")
+	ErrDevicePathNotProvided           = lstt.Error(lcodes.InvalidArgument, "Device path not provided")
+	ErrStagingTargetNotProvided        = lstt.Error(lcodes.InvalidArgument, "Staging target not provided")
+	ErrTargetPathNotProvided           = lstt.Error(lcodes.InvalidArgument, "Target path not provided")
+	ErrVolumeCapabilityNotProvided     = lstt.Error(lcodes.InvalidArgument, "Volume capability not provided")
+	ErrVolumeCapabilityNotSupported    = lstt.Error(lcodes.InvalidArgument, "Volume capability not supported")
 
 	ErrInvalidFstype = func(pfstype string) error {
 		return lstt.Errorf(lcodes.InvalidArgument, "Invalid fstype (%s)", pfstype)
@@ -30,6 +33,14 @@ var (
 
 	ErrCanNotParseRequestArguments = func(pargument, pvalue string) error {
 		return lstt.Errorf(lcodes.InvalidArgument, "Could not parse %s (%s)", pargument, pvalue)
+	}
+
+	ErrInvalidFormatParameter = func(pkey string, perr error) error {
+		return lstt.Errorf(lcodes.InvalidArgument, "Invalid %s (aborting!): %v", pkey, perr)
+	}
+
+	ErrCanNotUseSpecifiedFstype = func(pkey, pfsType string) error {
+		return lstt.Errorf(lcodes.InvalidArgument, "Cannot use %s with fstype %s", pkey, pfsType)
 	}
 )
 
@@ -92,6 +103,50 @@ var (
 
 	ErrFailedToListVolumeByName = func(pvolName string) error {
 		return lstt.Errorf(lcodes.Internal, "CANNOT list volume by name %s", pvolName)
+	}
+
+	ErrFailedToFindTargetPath = func(pdevicePath string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Failed to find device path %s. %v", pdevicePath, perr)
+	}
+
+	ErrFailedToCheckTargetPathExists = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Failed to check if target %q exists: %v", ptarget, perr)
+	}
+
+	ErrCanNotCreateTargetDir = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "CAN NOT create target dir %q: %v", ptarget, perr)
+	}
+
+	ErrFailedToCheckVolumeMounted = func(perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Failed to check if volume is already mounted: %v", perr)
+	}
+
+	ErrCanNotFormatAndMountVolume = func(psource, ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "CAN NOT format %q and mount it at %q: %v", psource, ptarget, perr)
+	}
+
+	ErrDetermineVolumeResize = func(pvolumeID, psource string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not determine if volume %q (%q) need to be resized:  %v", pvolumeID, psource, perr)
+	}
+
+	ErrAttemptCreateResizeFs = func(perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Error attempting to create new ResizeFs:  %v", perr)
+	}
+
+	ErrCanNotResizeVolumeOnNode = func(pvolumeID, psource string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not resize volume %q (%q):  %v", pvolumeID, psource, perr)
+	}
+
+	ErrFailedCheckTargetPathIsMountPoint = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Failed to check if target %q is a mount point: %v", ptarget, perr)
+	}
+
+	ErrCanNotUnmountTarget = func(ptarget string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "CAN NOT unmount target %q: %v", ptarget, perr)
+	}
+
+	ErrFailedToCheckPathExists = func(ppath string, perr error) error {
+		return lstt.Errorf(lcodes.Internal, "Could not check if path exists %q: %v", ppath, perr)
 	}
 )
 

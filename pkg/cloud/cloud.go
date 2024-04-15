@@ -35,7 +35,7 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 	}
 
 	vserverV2Client, _ := vngcloud.NewServiceClient(vserverV2, pc, "vserver-v2")
-	vserverV1Client, _ := vngcloud.NewServiceClient(vserverV1, pc, "portal-v1")
+	vserverV1Client, _ := vngcloud.NewServiceClient(vserverV1, pc, "vserver-v1")
 	ei, err := setupPortalInfo(vserverV1Client, metadataSvc)
 	if err != nil {
 		return nil, err

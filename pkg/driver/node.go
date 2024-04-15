@@ -4,23 +4,22 @@ import (
 	lctx "context"
 	"encoding/json"
 	"fmt"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"time"
 
+	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
-
-	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8stypes "k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
@@ -39,114 +38,6 @@ type nodeService struct {
 	deviceIdentifier DeviceIdentifier
 	inFlight         *lsinternal.InFlight
 	driverOptions    *DriverOptions
-}
-
-// newNodeService creates a new node service
-// it panics if failed to create the service
-func newNodeService(driverOptions *DriverOptions) nodeService {
-	klog.V(5).Infof("Retrieving node info from metadata service")
-	metadata, err := lscloud.NewMetadataService(lscloud.DefaultVServerMetadataClient)
-	if err != nil {
-		panic(err)
-	}
-
-	nodeMounter, err := newNodeMounter()
-	if err != nil {
-		panic(err)
-	}
-
-	// Remove taint from node to indicate driver startup success
-	// This is done at the last possible moment to prevent race conditions or false positive removals
-	time.AfterFunc(taintRemovalInitialDelay, func() {
-		removeTaintInBackground(lscloud.DefaultKubernetesAPIClient, removeNotReadyTaint)
-	})
-
-	return nodeService{
-		metadata:         metadata,
-		mounter:          nodeMounter,
-		deviceIdentifier: newNodeDeviceIdentifier(),
-		inFlight:         lsinternal.NewInFlight(),
-		driverOptions:    driverOptions,
-	}
-}
-
-// removeTaintInBackground is a goroutine that retries removeNotReadyTaint with exponential backoff
-func removeTaintInBackground(k8sClient lscloud.KubernetesAPIClient, removalFunc func(lscloud.KubernetesAPIClient) error) {
-	backoffErr := wait.ExponentialBackoff(taintRemovalBackoff, func() (bool, error) {
-		err := removalFunc(k8sClient)
-		if err != nil {
-			klog.ErrorS(err, "Unexpected failure when attempting to remove node taint(s)")
-			return false, nil
-		}
-		return true, nil
-	})
-
-	if backoffErr != nil {
-		klog.ErrorS(backoffErr, "Retries exhausted, giving up attempting to remove node taint(s)")
-	}
-}
-
-func removeNotReadyTaint(k8sClient lscloud.KubernetesAPIClient) error {
-	nodeName := os.Getenv("CSI_NODE_NAME")
-	if nodeName == "" {
-		klog.V(4).InfoS("CSI_NODE_NAME missing, skipping taint removal")
-		return nil
-	}
-
-	clientset, err := k8sClient()
-	if err != nil {
-		klog.V(4).InfoS("Failed to setup k8s client")
-		return nil //lint:ignore nilerr If there are no k8s credentials, treat that as a soft failure
-	}
-
-	node, err := clientset.CoreV1().Nodes().Get(lctx.Background(), nodeName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
-
-	err = checkAllocatable(clientset, nodeName)
-	if err != nil {
-		return err
-	}
-
-	var taintsToKeep []corev1.Taint
-	for _, taint := range node.Spec.Taints {
-		if taint.Key != AgentNotReadyNodeTaintKey {
-			taintsToKeep = append(taintsToKeep, taint)
-		} else {
-			klog.V(4).InfoS("Queued taint for removal", "key", taint.Key, "effect", taint.Effect)
-		}
-	}
-
-	if len(taintsToKeep) == len(node.Spec.Taints) {
-		klog.V(4).InfoS("No taints to remove on node, skipping taint removal")
-		return nil
-	}
-
-	patchRemoveTaints := []JSONPatch{
-		{
-			OP:    "test",
-			Path:  "/spec/taints",
-			Value: node.Spec.Taints,
-		},
-		{
-			OP:    "replace",
-			Path:  "/spec/taints",
-			Value: taintsToKeep,
-		},
-	}
-
-	patch, err := json.Marshal(patchRemoveTaints)
-	if err != nil {
-		return err
-	}
-
-	_, err = clientset.CoreV1().Nodes().Patch(lctx.Background(), nodeName, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
-	if err != nil {
-		return err
-	}
-	klog.InfoS("Removed taint(s) from local node", "node", nodeName)
-	return nil
 }
 
 func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolumeRequest) (*lcsi.NodeStageVolumeResponse, error) {
@@ -226,7 +117,7 @@ func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolume
 	mountOptions := collectMountOptions(fsType, mountVolume.GetMountFlags())
 
 	if ok = s.inFlight.Insert(volumeID); !ok {
-		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExists, volumeID)
+		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 	defer func() {
 		klog.V(4).InfoS("NodeStageVolume: volume operation finished", "volumeID", volumeID)
@@ -235,20 +126,19 @@ func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolume
 
 	devicePath, ok := preq.GetPublishContext()[DevicePathKey]
 	if !ok {
-		return nil, status.Error(codes.InvalidArgument, "Device path not provided")
+		return nil, ErrDevicePathNotProvided
 	}
 
 	//source, err := s.findDevicePath(devicePath, volumeID, "")
 	source, err := s.getDevicePath(devicePath)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Failed to find device path %s. %v", devicePath, err)
+		return nil, ErrFailedToFindTargetPath(devicePath, err)
 	}
 
 	klog.V(4).InfoS("NodeStageVolume: find device path", "devicePath", devicePath, "source", source)
 	exists, err := s.mounter.PathExists(target)
 	if err != nil {
-		msg := fmt.Sprintf("failed to check if target %q exists: %v", target, err)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, ErrFailedToCheckTargetPathExists(target, err)
 	}
 	// When exists is true it means target path was created but device isn't mounted.
 	// We don't want to do anything in that case and let the operation proceed.
@@ -257,16 +147,14 @@ func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolume
 		// If target path does not exist we need to create the directory where volume will be staged
 		klog.V(4).InfoS("NodeStageVolume: creating target dir", "target", target)
 		if err = s.mounter.MakeDir(target); err != nil {
-			msg := fmt.Sprintf("could not create target dir %q: %v", target, err)
-			return nil, status.Error(codes.Internal, msg)
+			return nil, ErrCanNotCreateTargetDir(target, err)
 		}
 	}
 
 	// Check if a device is mounted in target directory
 	device, _, err := s.mounter.GetDeviceNameFromMount(target)
 	if err != nil {
-		msg := fmt.Sprintf("failed to check if volume is already mounted: %v", err)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, ErrFailedToCheckVolumeMounted(err)
 	}
 
 	// This operation (NodeStageVolume) MUST be idempotent.
@@ -308,23 +196,22 @@ func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolume
 	}
 	err = s.mounter.FormatAndMountSensitiveWithFormatOptions(source, target, fsType, mountOptions, nil, formatOptions)
 	if err != nil {
-		msg := fmt.Sprintf("could not format %q and mount it at %q: %v", source, target, err)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, ErrCanNotFormatAndMountVolume(source, target, err)
 	}
 
 	needResize, err := s.mounter.NeedResize(source, target)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not determine if volume %q (%q) need to be resized:  %v", preq.GetVolumeId(), source, err)
+		return nil, ErrDetermineVolumeResize(volumeID, source, err)
 	}
 
 	if needResize {
 		r, err := s.mounter.NewResizeFs()
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "Error attempting to create new ResizeFs:  %v", err)
+			return nil, ErrAttemptCreateResizeFs(err)
 		}
 		klog.V(2).InfoS("Volume needs resizing", "source", source)
 		if _, err := r.Resize(source, target); err != nil {
-			return nil, status.Errorf(codes.Internal, "Could not resize volume %q (%q):  %v", volumeID, source, err)
+			return nil, ErrCanNotResizeVolumeOnNode(volumeID, source, err)
 		}
 	}
 	klog.V(4).InfoS("NodeStageVolume: successfully staged volume", "source", source, "volumeID", volumeID, "target", target, "fstype", fsType)
@@ -332,19 +219,19 @@ func (s *nodeService) NodeStageVolume(_ lctx.Context, preq *lcsi.NodeStageVolume
 }
 
 func (s *nodeService) NodeUnstageVolume(ctx lctx.Context, preq *lcsi.NodeUnstageVolumeRequest) (*lcsi.NodeUnstageVolumeResponse, error) {
-	klog.V(4).InfoS("NodeUnstageVolume: called", "args", *preq)
+	klog.V(4).InfoS("NodeUnstageVolume: called", "preq", *preq)
 	volumeID := preq.GetVolumeId()
 	if len(volumeID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+		return nil, ErrVolumeIDNotProvided
 	}
 
 	target := preq.GetStagingTargetPath()
 	if len(target) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
+		return nil, ErrStagingTargetNotProvided
 	}
 
 	if ok := s.inFlight.Insert(volumeID); !ok {
-		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExists, volumeID)
+		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 	defer func() {
 		klog.V(4).InfoS("NodeUnStageVolume: volume operation finished", "volumeID", volumeID)
@@ -356,8 +243,7 @@ func (s *nodeService) NodeUnstageVolume(ctx lctx.Context, preq *lcsi.NodeUnstage
 	// returns the device name, reference count, and error code
 	dev, refCount, err := s.mounter.GetDeviceNameFromMount(target)
 	if err != nil {
-		msg := fmt.Sprintf("failed to check if target %q is a mount point: %v", target, err)
-		return nil, status.Error(codes.Internal, msg)
+		return nil, ErrFailedCheckTargetPathIsMountPoint(target, err)
 	}
 
 	// From the spec: If the volume corresponding to the volume_id
@@ -375,40 +261,41 @@ func (s *nodeService) NodeUnstageVolume(ctx lctx.Context, preq *lcsi.NodeUnstage
 	klog.V(4).InfoS("NodeUnstageVolume: unmounting", "target", target)
 	err = s.mounter.Unstage(target)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Could not unmount target %q: %v", target, err)
+		return nil, ErrCanNotUnmountTarget(target, err)
 	}
+
 	klog.V(4).InfoS("NodeUnStageVolume: successfully unstaged volume", "volumeID", volumeID, "target", target)
 	return &lcsi.NodeUnstageVolumeResponse{}, nil
 }
 
-func (s *nodeService) NodePublishVolume(ctx lctx.Context, req *lcsi.NodePublishVolumeRequest) (*lcsi.NodePublishVolumeResponse, error) {
-	klog.V(4).InfoS("NodePublishVolume: called", "args", *req)
-	volumeID := req.GetVolumeId()
+func (s *nodeService) NodePublishVolume(_ lctx.Context, preq *lcsi.NodePublishVolumeRequest) (*lcsi.NodePublishVolumeResponse, error) {
+	klog.V(4).InfoS("NodePublishVolume: called", "preq", *preq)
+	volumeID := preq.GetVolumeId()
 	if len(volumeID) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Volume ID not provided")
+		return nil, ErrVolumeIDNotProvided
 	}
 
-	source := req.GetStagingTargetPath()
+	source := preq.GetStagingTargetPath()
 	if len(source) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Staging target not provided")
+		return nil, ErrStagingTargetNotProvided
 	}
 
-	target := req.GetTargetPath()
+	target := preq.GetTargetPath()
 	if len(target) == 0 {
-		return nil, status.Error(codes.InvalidArgument, "Target path not provided")
+		return nil, ErrTargetPathNotProvided
 	}
 
-	volCap := req.GetVolumeCapability()
+	volCap := preq.GetVolumeCapability()
 	if volCap == nil {
-		return nil, status.Error(codes.InvalidArgument, "Volume capability not provided")
+		return nil, ErrVolumeCapabilityNotProvided
 	}
 
 	if !isValidVolumeCapabilities([]*lcsi.VolumeCapability{volCap}) {
-		return nil, status.Error(codes.InvalidArgument, "Volume capability not supported")
+		return nil, ErrVolumeCapabilityNotSupported
 	}
 
 	if ok := s.inFlight.Insert(volumeID); !ok {
-		return nil, status.Errorf(codes.Aborted, volumeOperationAlreadyExists, volumeID)
+		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 	defer func() {
 		klog.V(4).InfoS("NodePublishVolume: volume operation finished", "volumeId", volumeID)
@@ -416,17 +303,17 @@ func (s *nodeService) NodePublishVolume(ctx lctx.Context, req *lcsi.NodePublishV
 	}()
 
 	mountOptions := []string{"bind"}
-	if req.GetReadonly() {
+	if preq.GetReadonly() {
 		mountOptions = append(mountOptions, "ro")
 	}
 
 	switch mode := volCap.GetAccessType().(type) {
 	case *lcsi.VolumeCapability_Block:
-		if err := s.nodePublishVolumeForBlock(req, mountOptions); err != nil {
+		if err := s.nodePublishVolumeForBlock(preq, mountOptions); err != nil {
 			return nil, err
 		}
 	case *lcsi.VolumeCapability_Mount:
-		if err := s.nodePublishVolumeForFileSystem(req, mountOptions, mode); err != nil {
+		if err := s.nodePublishVolumeForFileSystem(preq, mountOptions, mode); err != nil {
 			return nil, err
 		}
 	}
@@ -545,115 +432,21 @@ func collectMountOptions(fsType string, mntFlags []string) []string {
 	return options
 }
 
-// hasMountOption returns a boolean indicating whether the given
-// slice already contains a mount option. This is used to prevent
-// passing duplicate option to the mount command.
-func hasMountOption(options []string, opt string) bool {
-	for _, o := range options {
-		if o == opt {
-			return true
-		}
-	}
-	return false
-}
-
-// findDevicePath finds path of device and verifies its existence
-// if the device is not nvme, return the path directly
-// if the device is nvme, finds and returns the nvme device path eg. /dev/nvme1n1
-func (s *nodeService) findDevicePath(devicePath, volumeID, partition string) (string, error) {
-	strippedVolumeName := strings.Replace(volumeID, "-", "", -1)
-	canonicalDevicePath := ""
-
-	// If the given path exists, the device MAY be nvme. Further, it MAY be a
-	// symlink to the nvme device path like:
-	// | $ stat /dev/xvdba
-	// | File: ‘/dev/xvdba’ -> ‘nvme1n1’
-	// Since these are maybes, not guarantees, the search for the nvme device
-	// path below must happen and must rely on volume ID
-	exists, err := s.mounter.PathExists(devicePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to check if path %q exists: %w", devicePath, err)
-	}
-
-	if exists {
-		stat, lstatErr := s.deviceIdentifier.Lstat(devicePath)
-		if lstatErr != nil {
-			return "", fmt.Errorf("failed to lstat %q: %w", devicePath, err)
-		}
-
-		if stat.Mode()&os.ModeSymlink == os.ModeSymlink {
-			canonicalDevicePath, err = s.deviceIdentifier.EvalSymlinks(devicePath)
-			if err != nil {
-				return "", fmt.Errorf("failed to evaluate symlink %q: %w", devicePath, err)
-			}
-		} else {
-			canonicalDevicePath = devicePath
-		}
-
-		klog.V(5).InfoS("[Debug] The canonical device path was resolved", "devicePath", devicePath, "cacanonicalDevicePath", canonicalDevicePath)
-		if err = verifyVolumeSerialMatch(canonicalDevicePath, strippedVolumeName, execRunner); err != nil {
-			return "", err
-		}
-		return s.appendPartition(canonicalDevicePath, partition), nil
-	}
-
-	klog.V(5).InfoS("[Debug] Falling back to nvme volume ID lookup", "devicePath", devicePath)
-
-	// AWS recommends identifying devices by volume ID
-	// (https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/nvme-ebs-volumes.html),
-	// so find the nvme device path using volume ID. This is the magic name on
-	// which AWS presents NVME devices under /dev/disk/by-id/. For example,
-	// vol-0fab1d5e3f72a5e23 creates a symlink at
-	// /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0fab1d5e3f72a5e23
-	nvmeName := "nvme-Amazon_Elastic_Block_Store_" + strippedVolumeName
-
-	nvmeDevicePath, err := findNvmeVolume(s.deviceIdentifier, nvmeName)
-
-	if err == nil {
-		klog.V(5).InfoS("[Debug] successfully resolved", "nvmeName", nvmeName, "nvmeDevicePath", nvmeDevicePath)
-		canonicalDevicePath = nvmeDevicePath
-		if err = verifyVolumeSerialMatch(canonicalDevicePath, strippedVolumeName, execRunner); err != nil {
-			return "", err
-		}
-		return s.appendPartition(canonicalDevicePath, partition), nil
-	} else {
-		klog.V(5).InfoS("[Debug] error searching for nvme path", "nvmeName", nvmeName, "err", err)
-	}
-
-	if canonicalDevicePath == "" {
-		return "", errNoDevicePathFound(devicePath, volumeID)
-	}
-
-	canonicalDevicePath = s.appendPartition(canonicalDevicePath, partition)
-	return canonicalDevicePath, nil
-}
-
 func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeRequest, mountOptions []string) error {
 	target := req.GetTargetPath()
-	//volumeID := req.GetVolumeId()
 	volumeContext := req.GetVolumeContext()
 
 	devicePath, exists := req.GetPublishContext()[DevicePathKey]
 	if !exists {
-		return status.Error(codes.InvalidArgument, "Device path not provided")
+		return ErrDevicePathNotProvided
 	}
-	if isValidVolumeContext := isValidVolumeContext(volumeContext); !isValidVolumeContext {
-		return status.Error(codes.InvalidArgument, "Volume Attribute is invalid")
+	if isValid := isValidVolumeContext(volumeContext); !isValid {
+		return ErrVolumeAttributesInvalid
 	}
 
-	//partition := ""
-	//if part, ok := req.GetVolumeContext()[VolumeAttributePartition]; ok {
-	//	if part != "0" {
-	//		partition = part
-	//	} else {
-	//		klog.InfoS("NodePublishVolume: invalid partition config, will ignore.", "partition", part)
-	//	}
-	//}
-
-	//source, err := s.findDevicePath(devicePath, volumeID, partition)
 	source, err := s.getDevicePath(devicePath)
 	if err != nil {
-		return status.Errorf(codes.Internal, "Failed to find device path %s. %v", devicePath, err)
+		return ErrFailedToFindTargetPath(devicePath, err)
 	}
 
 	klog.V(4).InfoS("NodePublishVolume [block]: find device path", "devicePath", devicePath, "source", source)
@@ -664,7 +457,7 @@ func (s *nodeService) nodePublishVolumeForBlock(req *lcsi.NodePublishVolumeReque
 	// Path in the form of /var/lib/kubelet/plugins/kubernetes.io/csi/volumeDevices/publish/{volumeName}
 	exists, err = s.mounter.PathExists(globalMountPath)
 	if err != nil {
-		return status.Errorf(codes.Internal, "Could not check if path exists %q: %v", globalMountPath, err)
+		return ErrFailedToCheckPathExists(globalMountPath, err)
 	}
 
 	if !exists {
@@ -795,6 +588,28 @@ func (s *nodeService) isMounted(_ string, target string) (bool, error) {
 	return !notMnt, nil
 }
 
+func (s *nodeService) appendPartition(devicePath, partition string) string {
+	if partition == "" {
+		return devicePath
+	}
+
+	if strings.HasPrefix(devicePath, "/dev/nvme") {
+		return devicePath + nvmeDiskPartitionSuffix + partition
+	}
+
+	return devicePath + diskPartitionSuffix + partition
+}
+
+func (s *nodeService) getDevicePath(volumeID string) (string, error) {
+	var devicePath string
+	devicePath, err := s.mounter.GetDevicePathBySerialID(volumeID)
+	if err != nil {
+		klog.Warningf("Couldn't get device path from mount: %v", err)
+	}
+
+	return devicePath, nil
+}
+
 func verifyVolumeSerialMatch(canonicalDevicePath string, strippedVolumeName string, execRunner func(string, ...string) ([]byte, error)) error {
 	// In some rare cases, a race condition can lead to the /dev/disk/by-id/ symlink becoming out of date
 	// See https://github.com/kubernetes-sigs/aws-ebs-csi-driver/issues/1224 for more info
@@ -818,24 +633,6 @@ func verifyVolumeSerialMatch(canonicalDevicePath string, strippedVolumeName stri
 	}
 
 	return nil
-}
-
-// Helper to inject exec.Comamnd().CombinedOutput() for verifyVolumeSerialMatch
-// Tests use a mocked version that does not actually execute any binaries
-func execRunner(name string, arg ...string) ([]byte, error) {
-	return exec.Command(name, arg...).CombinedOutput()
-}
-
-func (s *nodeService) appendPartition(devicePath, partition string) string {
-	if partition == "" {
-		return devicePath
-	}
-
-	if strings.HasPrefix(devicePath, "/dev/nvme") {
-		return devicePath + nvmeDiskPartitionSuffix + partition
-	}
-
-	return devicePath + diskPartitionSuffix + partition
 }
 
 // findNvmeVolume looks for the nvme volume with the specified name
@@ -869,16 +666,127 @@ func findNvmeVolume(deviceIdentifier DeviceIdentifier, findName string) (device 
 	return resolved, nil
 }
 
-func errNoDevicePathFound(devicePath, volumeID string) error {
-	return fmt.Errorf("no device path for device %q volume %q found", devicePath, volumeID)
-}
-
-func (s *nodeService) getDevicePath(volumeID string) (string, error) {
-	var devicePath string
-	devicePath, err := s.mounter.GetDevicePathBySerialID(volumeID)
+// newNodeService creates a new node service it panics if failed to create the service
+func newNodeService(driverOptions *DriverOptions) nodeService {
+	klog.V(5).Infof("Retrieving node info from metadata service")
+	metadata, err := lscloud.NewMetadataService(lscloud.DefaultVServerMetadataClient)
 	if err != nil {
-		klog.Warningf("Couldn't get device path from mount: %v", err)
+		panic(err)
 	}
 
-	return devicePath, nil
+	nodeMounter, err := newNodeMounter()
+	if err != nil {
+		panic(err)
+	}
+
+	// Remove taint from node to indicate driver startup success
+	// This is done at the last possible moment to prevent race conditions or false positive removals
+	time.AfterFunc(taintRemovalInitialDelay, func() {
+		removeTaintInBackground(lscloud.DefaultKubernetesAPIClient, removeNotReadyTaint)
+	})
+
+	return nodeService{
+		metadata:         metadata,
+		mounter:          nodeMounter,
+		deviceIdentifier: newNodeDeviceIdentifier(),
+		inFlight:         lsinternal.NewInFlight(),
+		driverOptions:    driverOptions,
+	}
+}
+
+// removeTaintInBackground is a goroutine that retries removeNotReadyTaint with exponential backoff
+func removeTaintInBackground(k8sClient lscloud.KubernetesAPIClient, removalFunc func(lscloud.KubernetesAPIClient) error) {
+	backoffErr := wait.ExponentialBackoff(taintRemovalBackoff, func() (bool, error) {
+		err := removalFunc(k8sClient)
+		if err != nil {
+			klog.ErrorS(err, "Unexpected failure when attempting to remove node taint(s)")
+			return false, nil
+		}
+		return true, nil
+	})
+
+	if backoffErr != nil {
+		klog.ErrorS(backoffErr, "Retries exhausted, giving up attempting to remove node taint(s)")
+	}
+}
+
+func removeNotReadyTaint(k8sClient lscloud.KubernetesAPIClient) error {
+	nodeName := os.Getenv("CSI_NODE_NAME")
+	if nodeName == "" {
+		klog.V(4).InfoS("CSI_NODE_NAME missing, skipping taint removal")
+		return nil
+	}
+
+	clientset, err := k8sClient()
+	if err != nil {
+		klog.V(4).InfoS("Failed to setup k8s client")
+		return nil //lint:ignore nilerr If there are no k8s credentials, treat that as a soft failure
+	}
+
+	node, err := clientset.CoreV1().Nodes().Get(lctx.Background(), nodeName, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	err = checkAllocatable(clientset, nodeName)
+	if err != nil {
+		return err
+	}
+
+	var taintsToKeep []corev1.Taint
+	for _, taint := range node.Spec.Taints {
+		if taint.Key != AgentNotReadyNodeTaintKey {
+			taintsToKeep = append(taintsToKeep, taint)
+		} else {
+			klog.V(4).InfoS("Queued taint for removal", "key", taint.Key, "effect", taint.Effect)
+		}
+	}
+
+	if len(taintsToKeep) == len(node.Spec.Taints) {
+		klog.V(4).InfoS("No taints to remove on node, skipping taint removal")
+		return nil
+	}
+
+	patchRemoveTaints := []JSONPatch{
+		{
+			OP:    "test",
+			Path:  "/spec/taints",
+			Value: node.Spec.Taints,
+		},
+		{
+			OP:    "replace",
+			Path:  "/spec/taints",
+			Value: taintsToKeep,
+		},
+	}
+
+	patch, err := json.Marshal(patchRemoveTaints)
+	if err != nil {
+		return err
+	}
+
+	_, err = clientset.CoreV1().Nodes().Patch(lctx.Background(), nodeName, k8stypes.JSONPatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return err
+	}
+	klog.InfoS("Removed taint(s) from local node", "node", nodeName)
+	return nil
+}
+
+// Helper to inject exec.Comamnd().CombinedOutput() for verifyVolumeSerialMatch
+// Tests use a mocked version that does not actually execute any binaries
+func execRunner(name string, arg ...string) ([]byte, error) {
+	return exec.Command(name, arg...).CombinedOutput()
+}
+
+// hasMountOption returns a boolean indicating whether the given
+// slice already contains a mount option. This is used to prevent
+// passing duplicate option to the mount command.
+func hasMountOption(options []string, opt string) bool {
+	for _, o := range options {
+		if o == opt {
+			return true
+		}
+	}
+	return false
 }

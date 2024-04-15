@@ -446,7 +446,7 @@ func (s *controllerService) ControllerExpandVolume(_ lctx.Context, preq *lcsi.Co
 	if volume.Size >= volSizeGB {
 		llog.V(2).Infof("ControllerExpandVolume; volume %s already has size %d GiB", volumeID, volume.Size)
 		return &lcsi.ControllerExpandVolumeResponse{
-			CapacityBytes:         int64(volume.Size * 1024 * 1024 * 1024),
+			CapacityBytes:         lsutil.GiBToBytes(int64(volume.Size)),
 			NodeExpansionRequired: true,
 		}, nil
 	}

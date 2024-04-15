@@ -3,6 +3,7 @@ package driver
 import (
 	"errors"
 	"fmt"
+	"github.com/cuongpiger/joat/math"
 	ljoat "github.com/cuongpiger/joat/parser"
 	"strconv"
 	"strings"
@@ -189,13 +190,13 @@ func recheckFormattingOptionParameter(context map[string]string, key string, fsC
 		// This check is already performed on the controller side
 		// However, because it is potentially security-sensitive, we redo it here to be safe
 		if isAlphanumeric := parser.StringIsAlphanumeric(value); !isAlphanumeric {
-			return "", status.Errorf(codes.InvalidArgument, "Invalid %s (aborting!): %v", key, err)
+			return "", ErrInvalidFormatParameter(key, err)
 		}
 
 		// In the case that the default fstype does not support custom sizes we could
 		// be using an invalid fstype, so recheck that here
 		if supported := fsConfigs[strings.ToLower(fsType)].isParameterSupported(key); !supported {
-			return "", status.Errorf(codes.InvalidArgument, "Cannot use %s with fstype %s", key, fsType)
+			return "", ErrCanNotUseSpecifiedFstype(key, fsType)
 		}
 	}
 	return v, nil
@@ -217,4 +218,13 @@ func validateDeleteSnapshotRequest(req *lcsi.DeleteSnapshotRequest) error {
 		return status.Error(codes.InvalidArgument, "Snapshot ID not provided")
 	}
 	return nil
+}
+
+func getVolSizeBytes(preq *lcsi.CreateVolumeRequest) (volSizeBytes int64) {
+	// get the volume size that user provided
+	if preq.GetCapacityRange() != nil {
+		volSizeBytes = preq.GetCapacityRange().GetRequiredBytes()
+	}
+
+	return math.MaxNumeric(volSizeBytes, cloud.DefaultVolumeSize)
 }
