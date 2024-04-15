@@ -456,14 +456,16 @@ func (s *nodeService) NodeExpandVolume(_ lctx.Context, preq *lcsi.NodeExpandVolu
 		}
 	}
 
-	deviceName, _, err := s.mounter.GetDeviceNameFromMount(volumePath)
+	output, err := s.mounter.GetMountFs(volumePath)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get device name from mount %s: %v", volumePath, err)
+		klog.Errorf("NodeExpandVolume; failed to get mount fs: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	devicePath, err := s.getDevicePath(volumePath)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to find device path for device name %s for mount %s: %v", deviceName, preq.GetVolumePath(), err)
+	devicePath := strings.TrimSpace(string(output))
+	if devicePath == "" {
+		klog.Errorf("NodeExpandVolume; failed to get device path for volume %s", volumeID)
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to get device path for volume %s", volumeID))
 	}
 
 	r, err := s.mounter.NewResizeFs()

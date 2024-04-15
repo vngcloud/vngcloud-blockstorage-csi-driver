@@ -27,6 +27,7 @@ type Mounter interface {
 	Unpublish(path string) error
 	GetDevicePathBySerialID(pvolId string) (string, error)
 	Unstage(path string) error
+	GetMountFs(volumePath string) ([]byte, error)
 }
 
 type DeviceIdentifier interface {
@@ -110,6 +111,11 @@ func (s *NodeMounter) Unstage(path string) error {
 	} else {
 		return err
 	}
+}
+
+func (s *NodeMounter) GetMountFs(volumePath string) ([]byte, error) {
+	args := []string{"-o", "source", "--first-only", "--noheadings", "--target", volumePath}
+	return s.SafeFormatAndMount.Exec.Command("findmnt", args...).CombinedOutput()
 }
 
 func (s *NodeMounter) MakeFile(path string) error {

@@ -579,7 +579,7 @@ func newCreateSnapshotResponse(snapshot *lsdkObj.Snapshot) (*lcsi.CreateSnapshot
 		Snapshot: &lcsi.Snapshot{
 			SnapshotId:     snapshot.ID,
 			SourceVolumeId: snapshot.VolumeID,
-			SizeBytes:      snapshot.Size * lsutil.GiB,
+			SizeBytes:      snapshot.VolumeSize * lsutil.GiB,
 			CreationTime:   lts.New(creationTime),
 			ReadyToUse:     true,
 		},
