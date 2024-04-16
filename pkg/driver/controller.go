@@ -343,6 +343,12 @@ func (s *controllerService) DeleteSnapshot(_ lctx.Context, preq *lcsi.DeleteSnap
 func (s *controllerService) ListSnapshots(_ lctx.Context, preq *lcsi.ListSnapshotsRequest) (*lcsi.ListSnapshotsResponse, error) {
 	llog.V(4).InfoS("ListSnapshots: called", "preq", *preq)
 
+	snapshotID := preq.GetSnapshotId()
+	if snapshotID != "" {
+		llog.InfoS("Seems some volumes need to use snapshot, ignoring...", "snapshotID", snapshotID)
+		return newGetSnapshotsResponse(snapshotID), nil
+	}
+
 	volumeID := preq.GetSourceVolumeId()
 	nextToken := parsePage(preq.GetStartingToken())
 	maxEntries := int(preq.GetMaxEntries())
@@ -601,6 +607,23 @@ func newListSnapshotsResponse(psnapshotList *lsdkObj.SnapshotList) *lcsi.ListSna
 	return &lcsi.ListSnapshotsResponse{
 		Entries:   entries,
 		NextToken: nextToken,
+	}
+}
+
+func newGetSnapshotsResponse(psnapshotID string) *lcsi.ListSnapshotsResponse {
+	return &lcsi.ListSnapshotsResponse{
+		Entries: []*lcsi.ListSnapshotsResponse_Entry{
+			{
+				Snapshot: &lcsi.Snapshot{
+					SnapshotId:     psnapshotID,
+					SourceVolumeId: "undefined",
+					SizeBytes:      0,
+					CreationTime:   lts.Now(),
+					ReadyToUse:     true,
+				},
+			},
+		},
+		NextToken: "",
 	}
 }
 
