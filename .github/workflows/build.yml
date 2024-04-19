@@ -20,6 +20,8 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
+        with:
+          ref: dev
       # Runs a set of commands using the runners shell
       - name: Containerize the application
         run: |
