@@ -25,7 +25,12 @@ jobs:
       # Runs a set of commands using the runners shell
       - name: Containerize the application
         run: |
-          VERSION="v0.0.$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")"
+          TMP_VERSION="v0.0."
+          PR_NUMBER=$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")
+
+          # Concatenate the two variables
+          export VERSION="${TMP_VERSION}${PR_NUMBER}"
+          echo "Version: $VERSION"
           make build-local-images
       - name: Login to vcr.vngcloud.vn
         uses: docker/login-action@v3
@@ -35,5 +40,10 @@ jobs:
           password: ${{ secrets.VCR_PASSWORD }}
       - name: Push to vcr.vngcloud.vn
         run: |
-          VERSION="v0.0.$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")"
+          TMP_VERSION="v0.0."
+          PR_NUMBER=$(jq --raw-output .pull_request.number "$GITHUB_EVENT_PATH")
+
+          # Concatenate the two variables
+          export VERSION="${TMP_VERSION}${PR_NUMBER}"
+          echo "Version: $VERSION"
           docker image push ${{ secrets.VCR_REPOSITORY }}/vngcloud-blockstorage-csi-driver:$VERSION
