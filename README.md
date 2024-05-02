@@ -7,4 +7,3 @@
 **RELEASE** - [![Release vngcloud-blockstorage-csi-driver project](https://github.com/vngcloud/vngcloud-blockstorage-csi-driver/actions/workflows/release.yml/badge.svg)](https://github.com/vngcloud/vngcloud-blockstorage-csi-driver/actions/workflows/release.yml)
 
 <hr>
-
