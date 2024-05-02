@@ -145,8 +145,18 @@ build-local-image-%:
 		--tag $(REGISTRY)/$*:$(VERSION) \
 		.
 
+bush-image-%:
+	$(CONTAINER_ENGINE) build \
+		--build-arg VERSION=$(VERSION) \
+		--tag $(REGISTRY)/$*:$(VERSION) \
+		.
+
+	$(CONTAINER_ENGINE) image push $(REGISTRY)/$*:$(VERSION)
+
 # Build all images locally
 build-local-images: $(addprefix build-local-image-,$(IMAGE_NAMES))
+
+bush-local-images: $(addprefix bush-image-,$(IMAGE_NAMES))
 
 # Build a single image for all architectures in ARCHS and push it to REGISTRY
 push-multiarch-image-%:
