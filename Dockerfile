@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.21.6
+ARG GOLANG_IMAGE=golang:1.22.2
 
 # The distroless image on which the CPI manager image is built.
 #
@@ -22,13 +22,13 @@ ARG GOLANG_IMAGE=golang:1.21.6
 # deterministic builds. Follow what kubernetes uses to build
 # kube-controller-manager, for example for 1.27.x:
 # https://github.com/kubernetes/kubernetes/blob/release-1.27/build/common.sh#L99
-ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.21.6-bookworm.0
+ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.22.2-bookworm.0
 
 # We use Alpine as the source for default CA certificates and some output
 # images
 ARG ALPINE_IMAGE=alpine:3.17.5
 
-# cinder-csi-plugin uses Debian as a base image
+# vngcloud-blockstorage-csi-driver uses Debian as a base image
 ARG DEBIAN_IMAGE=registry.k8s.io/build-image/debian-base:bullseye-v1.4.3
 
 ################################################################################
@@ -66,7 +66,7 @@ RUN make build GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOPROXY=${GOPROXY} VERSION=
 
 
 ##
-## cinder-csi-plugin
+## vngcloud-blockstorage-csi-driver
 ##
 
 # step 1: copy all necessary files from Debian distro to /dest folder
@@ -88,7 +88,7 @@ COPY tools/csi-deps-check.sh /tools/csi-deps-check.sh
 SHELL ["/bin/sh"]
 RUN /tools/csi-deps-check.sh
 
-# step 3: build tiny cinder-csi-plugin image with only necessary files
+# step 3: build tiny vngcloud-blockstorage-csi-driver image with only necessary files
 FROM --platform=${TARGETPLATFORM} ${DISTROLESS_IMAGE} as vngcloud-blockstorage-csi-driver
 
 # Copying csi-deps-check.sh simply ensures that the resulting image has a dependency

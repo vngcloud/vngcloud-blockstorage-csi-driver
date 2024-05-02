@@ -1,11 +1,13 @@
 module github.com/vngcloud/vngcloud-blockstorage-csi-driver
 
+go 1.22
+
 require (
 	github.com/container-storage-interface/spec v1.9.0
-	github.com/cuongpiger/joat v0.0.12
+	github.com/cuongpiger/joat v1.0.4
 	github.com/spf13/pflag v1.0.5
 	github.com/vngcloud/vngcloud-csi-volume-modifier v0.0.0
-	github.com/vngcloud/vngcloud-go-sdk v0.0.1-0.20240415085206-5e2df957dfdf
+	github.com/vngcloud/vngcloud-go-sdk v1.0.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.49.0
 	go.opentelemetry.io/otel v1.24.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0
@@ -25,20 +27,19 @@ require (
 )
 
 require (
-	github.com/andybalholm/brotli v1.0.6 // indirect
+	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/imroc/req/v3 v3.42.3 // indirect
-	github.com/klauspost/compress v1.17.4 // indirect
+	github.com/imroc/req/v3 v3.43.3 // indirect
+	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/onsi/ginkgo/v2 v2.17.0 // indirect
 	github.com/onsi/gomega v1.32.0 // indirect
 	github.com/quic-go/qpack v0.4.0 // indirect
-	github.com/quic-go/qtls-go1-20 v0.4.1 // indirect
-	github.com/quic-go/quic-go v0.40.1 // indirect
-	github.com/refraction-networking/utls v1.6.0 // indirect
+	github.com/quic-go/quic-go v0.41.0 // indirect
+	github.com/refraction-networking/utls v1.6.3 // indirect
 	go.uber.org/mock v0.4.0 // indirect
 )
 
@@ -141,7 +142,3 @@ replace (
 	k8s.io/sample-controller => k8s.io/sample-controller v0.29.2
 	vbom.ml/util => github.com/fvbommel/util v0.0.2 // Mitigate https://github.com/fvbommel/util/issues/6
 )
-
-go 1.21.6
-
-toolchain go1.21.8

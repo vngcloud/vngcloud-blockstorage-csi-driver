@@ -76,12 +76,6 @@ unit: work
 functional:
 	@echo "$@ not yet implemented"
 
-test-cinder-csi-sanity: work
-	go test $(GIT_HOST)/$(BASE_DIR)/tests/sanity/cinder
-
-test-manila-csi-sanity: work
-	go test $(GIT_HOST)/$(BASE_DIR)/tests/sanity/manila
-
 # kept for compatibility reasons.
 fmt: check
 lint: check
