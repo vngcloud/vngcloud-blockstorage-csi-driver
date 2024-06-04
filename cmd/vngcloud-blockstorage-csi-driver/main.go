@@ -100,9 +100,6 @@ type ServerOptions struct {
 	EnableOtelTracing bool
 	TagKeyLength      int
 	TagValueLength    int
-	CacheUri          string
-	AlertChannel      string
-	AlertChannelSize  int
 }
 
 func (s *ServerOptions) AddFlags(fs *lflag.FlagSet) {
@@ -112,9 +109,6 @@ func (s *ServerOptions) AddFlags(fs *lflag.FlagSet) {
 	fs.StringVar(&s.ClusterID, "cluster-id", "", "The unique ID of the cluster. This is used to identify the cluster in the logs.")
 	fs.IntVar(&s.TagKeyLength, "tag-key-length", 15, "The maximum length of the tag key.")
 	fs.IntVar(&s.TagValueLength, "tag-value-length", 255, "The maximum length of the tag value.")
-	fs.StringVar(&s.CacheUri, "cache-uri", "", "The URI of the cache server.")
-	fs.StringVar(&s.AlertChannel, "alert-channel", "", "The alert channel to send alerts to.")
-	fs.IntVar(&s.AlertChannelSize, "alert-channel-size", 100, "The size of the alert channel.")
 }
 
 type ControllerOptions struct {
