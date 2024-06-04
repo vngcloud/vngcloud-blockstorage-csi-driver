@@ -14,7 +14,7 @@
 ##                               BUILD ARGS                                   ##
 ################################################################################
 # This build arg allows the specification of a custom Golang image.
-ARG GOLANG_IMAGE=golang:1.22.2
+ARG GOLANG_IMAGE=golang:1.22
 
 # The distroless image on which the CPI manager image is built.
 #
@@ -22,7 +22,7 @@ ARG GOLANG_IMAGE=golang:1.22.2
 # deterministic builds. Follow what kubernetes uses to build
 # kube-controller-manager, for example for 1.27.x:
 # https://github.com/kubernetes/kubernetes/blob/release-1.27/build/common.sh#L99
-ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.22.2-bookworm.0
+ARG DISTROLESS_IMAGE=registry.k8s.io/build-image/go-runner:v2.3.1-go1.22-bookworm.0
 
 # We use Alpine as the source for default CA certificates and some output
 # images
@@ -101,6 +101,6 @@ COPY --from=certs /etc/ssl/certs /etc/ssl/certs
 LABEL name="vngcloud-blockstorage-csi-driver" \
       maintainers="Cuong. Duong Manh" \
       email="cuongdm3@vng.com.vn" \
-      description="VngCloud BlockStorage CSI driver for VKS"
+      description="VngCloud BlockStorage CSI driver for VKS workload clusters"
 
 CMD ["/bin/vngcloud-blockstorage-csi-driver"]
