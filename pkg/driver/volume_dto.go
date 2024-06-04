@@ -5,12 +5,13 @@ import (
 	lstr "strings"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	ljset "github.com/cuongpiger/joat/data-structure/set"
 	ljoat "github.com/cuongpiger/joat/string"
+	lsdkVolumeV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/volume/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	lsdkVolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
 )
 
 type CreateVolumeRequest struct {
@@ -25,7 +26,7 @@ type CreateVolumeRequest struct {
 	PvNameTag          string // the name of the PV on the PVC's Annotation
 	IsPoc              bool   // whether the volume is a PoC volume
 	SnapshotID         string // the ID of the snapshot to create the volume from
-	CreateFrom         lsdkVolV2.CreateOptsCreateFrom
+	CreateFrom         lsdkVolumeV2.CreateVolumeFrom
 
 	// The scope of mount commands
 	BlockSize       string
@@ -34,23 +35,32 @@ type CreateVolumeRequest struct {
 	NumberOfInodes  string
 	Ext4ClusterSize string
 	Ext4BigAlloc    bool
+	RetainPolicy    string
+
+	DriverOptions *DriverOptions
 }
 
-type encryptedAlgorithm string
-
-const (
-	AesXtsPlain64_128 = encryptedAlgorithm("aes-xts-plain64_128")
-	AesXtsPlain64_256 = encryptedAlgorithm("aes-xts-plain64_256")
+var (
+	EncryptTypeSet = ljset.NewSet[lsdkVolumeV2.EncryptType](lsdkVolumeV2.AesXtsPlain64_128, lsdkVolumeV2.AesXtsPlain64_256)
 )
 
 func NewCreateVolumeRequest() *CreateVolumeRequest {
 	return &CreateVolumeRequest{
-		CreateFrom: lsdkVolV2.CreateFromNew, // set default value for createFrom field
+		CreateFrom: lsdkVolumeV2.CreateFromNew, // set default value for createFrom field
 	}
 }
 
 func (s *CreateVolumeRequest) WithClusterID(pclusterID string) *CreateVolumeRequest {
 	s.ClusterID = pclusterID
+	return s
+}
+
+func (s *CreateVolumeRequest) WithDriverOptions(pdo *DriverOptions) *CreateVolumeRequest {
+	if pdo == nil {
+		return s
+	}
+
+	s.DriverOptions = pdo
 	return s
 }
 
@@ -131,83 +141,57 @@ func (s *CreateVolumeRequest) WithExt4ClusterSize(pext4ClusterSize string) *Crea
 func (s *CreateVolumeRequest) WithSnapshotID(psnapshotID string) *CreateVolumeRequest {
 	s.SnapshotID = psnapshotID
 	if psnapshotID != "" {
-		s.CreateFrom = lsdkVolV2.CreateFromSnapshot
+		s.CreateFrom = lsdkVolumeV2.CreateFromSnapshot
 	}
 
 	return s
 }
 
 func (s *CreateVolumeRequest) WithEncrypted(pencrypted string) *CreateVolumeRequest {
-	pencrypted = lstr.ToLower(pencrypted)
-	switch pencrypted {
-	case string(AesXtsPlain64_128):
+	pencrypted = lstr.ToLower(lstr.TrimSpace(pencrypted))
+	if EncryptTypeSet.ContainsOne(lsdkVolumeV2.EncryptType(pencrypted)) {
 		s.EncryptedAlgorithm = pencrypted
-	case string(AesXtsPlain64_256):
-		s.EncryptedAlgorithm = pencrypted
-	default:
-		s.EncryptedAlgorithm = ""
+		return s
 	}
 
+	s.EncryptedAlgorithm = ""
 	return s
 }
 
-func (s *CreateVolumeRequest) ToSdkCreateVolumeOpts(pdo *DriverOptions) *lsdkVolV2.CreateOpts {
-	opts := new(lsdkVolV2.CreateOpts)
-
-	opts.IsPoc = s.IsPoc
-	opts.MultiAttach = s.IsMultiAttach
-	opts.Name = s.VolumeName
-	opts.Size = s.VolumeSize
-	opts.VolumeTypeId = s.VolumeTypeID
-	opts.CreatedFrom = s.CreateFrom
-	opts.EncryptionType = s.EncryptedAlgorithm
-	opts.Tags = s.prepareTag(pdo.GetTagKeyLength(), pdo.GetTagValueLength())
+func (s *CreateVolumeRequest) ToSdkCreateVolumeRequest() lsdkVolumeV2.ICreateBlockVolumeRequest {
+	opts := lsdkVolumeV2.NewCreateBlockVolumeRequest(s.VolumeName, s.VolumeTypeID, int64(s.VolumeSize)).
+		WithPoc(s.IsPoc).
+		WithMultiAttach(s.IsMultiAttach).
+		WithEncryptionType(lsdkVolumeV2.EncryptType(s.EncryptedAlgorithm)).
+		WithTags(s.prepareTag(s.DriverOptions.GetTagKeyLength(), s.DriverOptions.GetTagValueLength())...)
 
 	if s.SnapshotID != "" {
-		opts.ConfigureVolumeRestore = &lsdkVolV2.ConfigureVolumeRestore{
-			SnapshotVolumePointId: s.SnapshotID,
-			VolumeTypeId:          s.VolumeTypeID,
-		}
+		opts = opts.WithVolumeRestoreFromSnapshot(s.SnapshotID, s.VolumeTypeID)
 	}
 
 	return opts
 }
 
-func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []lsdkVolV2.CreateOptsTag {
-	var vts []lsdkVolV2.CreateOptsTag
+func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []string {
+	var vts []string
 	if s.ClusterID != "" {
-		vts = append(vts, lsdkVolV2.CreateOptsTag{
-			Key:   ljoat.Truncate(lscloud.VksClusterIdTagKey, ptkl),
-			Value: ljoat.Truncate(s.ClusterID, ptvl),
-		})
+		vts = append(vts, ljoat.Truncate(lscloud.VksClusterIdTagKey, ptkl), ljoat.Truncate(s.ClusterID, ptvl))
 	}
 
 	if s.PvcNameTag != "" {
-		vts = append(vts, lsdkVolV2.CreateOptsTag{
-			Key:   ljoat.Truncate(lscloud.VksPvcNameTagKey, ptkl),
-			Value: ljoat.Truncate(s.PvcNameTag, ptvl),
-		})
+		vts = append(vts, ljoat.Truncate(lscloud.VksPvcNameTagKey, ptkl), ljoat.Truncate(s.PvcNameTag, ptvl))
 	}
 
 	if s.PvcNamespaceTag != "" {
-		vts = append(vts, lsdkVolV2.CreateOptsTag{
-			Key:   ljoat.Truncate(lscloud.VksPvcNamespaceTagKey, ptkl),
-			Value: ljoat.Truncate(s.PvcNamespaceTag, ptvl),
-		})
+		vts = append(vts, ljoat.Truncate(lscloud.VksPvcNamespaceTagKey, ptkl), ljoat.Truncate(s.PvcNamespaceTag, ptvl))
 	}
 
 	if s.PvcNameTag != "" {
-		vts = append(vts, lsdkVolV2.CreateOptsTag{
-			Key:   ljoat.Truncate(lscloud.VksPvNameTagKey, ptkl),
-			Value: ljoat.Truncate(s.PvNameTag, ptvl),
-		})
+		vts = append(vts, ljoat.Truncate(lscloud.VksPvNameTagKey, ptkl), ljoat.Truncate(s.PvNameTag, ptvl))
 	}
 
 	if s.SnapshotID != "" {
-		vts = append(vts, lsdkVolV2.CreateOptsTag{
-			Key:   ljoat.Truncate(lscloud.VksSnapshotIdTagKey, ptkl),
-			Value: ljoat.Truncate(s.SnapshotID, ptvl),
-		})
+		vts = append(vts, ljoat.Truncate(lscloud.VksSnapshotIdTagKey, ptkl), ljoat.Truncate(s.SnapshotID, ptvl))
 	}
 
 	return vts

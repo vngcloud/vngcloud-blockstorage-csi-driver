@@ -1,28 +1,23 @@
 package driver
 
 import (
-	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	"k8s.io/apimachinery/pkg/util/wait"
 	ltime "time"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	lwait "k8s.io/apimachinery/pkg/util/wait"
+
+	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 )
 
 const (
 	DefaultCSIEndpoint                       = "unix://tmp/csi.sock"
 	DefaultModifyVolumeRequestHandlerTimeout = 30 * ltime.Second
-	AgentNotReadyNodeTaintKey                = "bs.csi.vngcloud.vn/agent-not-ready"
+	AgentNotReadyNodeTaintKey                = "csi.vngcloud.vn/agent-not-ready"
 
 	DefaultTimeoutModifyChannel = 10 * ltime.Minute
 
 	DriverName      = "bs.csi.vngcloud.vn"
 	ZoneTopologyKey = "topology." + DriverName + "/zone"
-)
-
-const (
-	// VolumeOperationAlreadyExists is message fmt returned to CO when there is another in-flight call on the given volumeID
-	volumeOperationAlreadyExists = "An operation with the given volume=%q is already in progress"
-	patternSnapshotDescription   = "Snapshot of PersistentVolume %s for vKS cluster %s"
 )
 
 // constants of disk partition suffix
@@ -166,7 +161,7 @@ var (
 	taintRemovalInitialDelay = 1 * ltime.Second
 
 	// taintRemovalBackoff is the exponential backoff configuration for node taint removal
-	taintRemovalBackoff = wait.Backoff{
+	taintRemovalBackoff = lwait.Backoff{
 		Duration: 500 * ltime.Millisecond,
 		Factor:   2,
 		Steps:    10, // Max delay = 0.5 * 2^9 = ~4 minutes

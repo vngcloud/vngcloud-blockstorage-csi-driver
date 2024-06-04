@@ -3,7 +3,6 @@ package driver
 import (
 	lctx "context"
 	lerr "errors"
-	lfmt "fmt"
 	lstrconv "strconv"
 	lstr "strings"
 	ltime "time"
@@ -11,13 +10,15 @@ import (
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	ljoat "github.com/cuongpiger/joat/parser"
 	lvmrpc "github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
-	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
-	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
-	lsdkSnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
+	lsdkEntity "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/entity"
+	lsdkErrs "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/sdk_error"
 	lts "google.golang.org/protobuf/types/known/timestamppb"
+	lk8s "k8s.io/client-go/kubernetes"
 	llog "k8s.io/klog/v2"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	lsentity "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/entity"
+	lserr "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/errors"
 	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
@@ -27,72 +28,76 @@ type controllerService struct {
 	inFlight            *lsinternal.InFlight
 	modifyVolumeManager *modifyVolumeManager
 	driverOptions       *DriverOptions
+	k8sClient           lk8s.Interface
 
 	lvmrpc.UnimplementedModifyServer
 }
 
 // newControllerService creates a new controller service it panics if failed to create the service
-func newControllerService(driverOptions *DriverOptions) controllerService {
+func newControllerService(pdriOpts *DriverOptions) controllerService {
 	metadata, err := NewMetadataFunc(lscloud.DefaultVServerMetadataClient)
 	if err != nil {
 		llog.ErrorS(err, "Could not determine the metadata information for the driver")
 		panic(err)
 	}
 
-	cloudSrv, err := NewCloudFunc(driverOptions.identityURL, driverOptions.vServerURL, driverOptions.clientID, driverOptions.clientSecret, metadata)
+	cloudSrv, err := NewCloudFunc(pdriOpts.identityURL, pdriOpts.vServerURL, pdriOpts.clientID, pdriOpts.clientSecret, metadata)
 	if err != nil {
 		panic(err)
 	}
 
+	k8sClient, _ := lscloud.DefaultKubernetesAPIClient()
 	return controllerService{
 		cloud:               cloudSrv,
 		inFlight:            lsinternal.NewInFlight(),
-		driverOptions:       driverOptions,
+		driverOptions:       pdriOpts,
 		modifyVolumeManager: newModifyVolumeManager(),
+		k8sClient:           k8sClient,
 	}
 }
 
 func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolumeRequest) (*lcsi.CreateVolumeResponse, error) {
-	llog.V(5).InfoS("CreateVolume: called", "preq", *preq)
+	var (
+		serr lserr.IError
+	)
+
+	llog.V(5).InfoS("[INFO] - CreateVolume: called", "preq", *preq)
 
 	// Validate the create volume request
 	if err := validateCreateVolumeRequest(preq); err != nil {
-		llog.ErrorS(err, "CreateVolume: invalid request")
+		llog.ErrorS(err, "[ERROR] - CreateVolume: invalid request")
 		return nil, err
 	}
 
 	// Validate volume size, if volume size is less than the default volume size of cloud provider, set it to the default volume size
-	volSizeBytes := getVolSizeBytes(preq)
+	volSizeBytes, err := s.getVolSizeBytes(preq)
+	if err != nil {
+		llog.ErrorS(err, "[ERROR] - CreateVolume: failed to get volume size")
+		return nil, ErrFailedToValidateVolumeSize(preq.GetName(), err)
+	}
+
 	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
 	volCap := preq.GetVolumeCapabilities() // get volume capabilities
 	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
 
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volName); !ok {
-		llog.V(5).InfoS("CreateVolume: volume is already in-flight", "volumeName", volName)
+		llog.V(5).InfoS("[INFO] - CreateVolume: Volume is already in-flight", "volumeName", volName)
 		return nil, ErrVolumeIsCreating(volName)
 	}
 	defer s.inFlight.Delete(volName)
 
-	vl, err := s.cloud.GetVolumeByName(volName)
-	if err != nil {
-		llog.ErrorS(err, "CreateVolume: failed to get volume", "volumeName", volName)
-		return nil, ErrFailedToListVolumeByName(volName)
-	}
-
-	if vl != nil && len(vl.Items) == 1 {
-		if vl.Items[0].Status != lscloud.VolumeAvailableStatus {
-			llog.V(5).Infof("CreateVolume: volume %s is already in progress", volName)
-			return nil, ErrVolumeIsCreating(volName)
+	if _, serr = s.cloud.GetVolumeByName(volName); serr != nil {
+		if !serr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+			llog.ErrorS(serr.GetError(), "[ERROR] - CreateVolume: failed to get volume", "volumeName", volName)
+			return nil, ErrFailedToListVolumeByName(volName)
 		}
-	} else if vl != nil && len(vl.Items) > 1 {
-		llog.Errorf("Multiple volumes found with the same name %s", volName)
-		return nil, ErrFailedToListVolumeByName(volName)
 	}
 
-	cvr := NewCreateVolumeRequest()
+	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions)
 	parser, _ := ljoat.GetParser()
 	for pk, pv := range preq.GetParameters() {
+		llog.InfoS("[INFO] - CreateVolume: parsing request parameters", "key", pk, "value", pv)
 		switch lstr.ToLower(pk) {
 		case VolumeTypeKey:
 			cvr = cvr.WithVolumeTypeID(pv)
@@ -138,7 +143,7 @@ func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolume
 
 	modifyOpts, err := parseModifyVolumeParameters(preq.GetMutableParameters())
 	if err != nil {
-		llog.ErrorS(err, "CreateVolume: invalid request")
+		llog.ErrorS(err, "[ERROR] - CreateVolume: invalid request")
 		return nil, ErrModifyMutableParam
 	}
 
@@ -156,7 +161,7 @@ func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolume
 
 	respCtx, err := cvr.ToResponseContext(volCap)
 	if err != nil {
-		llog.ErrorS(err, "CreateVolume: failed to parse response context", "volumeID", volName)
+		llog.ErrorS(err, "[ERROR] - CreateVolume: failed to parse response context", "volumeID", volName)
 		return nil, err
 	}
 
@@ -166,18 +171,19 @@ func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolume
 		WithVolumeTypeID(modifyOpts.VolumeType).
 		WithClusterID(s.getClusterID())
 
-	resp, err := s.cloud.CreateVolume(cvr.ToSdkCreateVolumeOpts(s.driverOptions))
-	if err != nil {
-		llog.ErrorS(err, "CreateVolume: failed to create volume", "volumeID", volName)
-		return nil, err
+	resp, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - CreateVolume: failed to create volume", sdkErr.GetErrorMessages())
+		return nil, sdkErr.GetError()
 	}
 
 	return newCreateVolumeResponse(resp, cvr, respCtx), nil
 }
 
 func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
-	llog.V(4).InfoS("DeleteVolume: called", "args", *preq)
+	llog.V(4).InfoS("[INFO] - DeleteVolume: called", "args", *preq)
 	if err := validateDeleteVolumeRequest(preq); err != nil {
+		llog.Errorf("[ERROR] - DeleteVolume: invalid request")
 		return nil, err
 	}
 
@@ -188,9 +194,21 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 	}
 	defer s.inFlight.Delete(volumeID)
 
+	// So the volume MUST NOT truly be deleted if it has at least one snapshot
+	lstSnapshots, ierr := s.cloud.ListSnapshots(volumeID, 1, 10)
+	if ierr != nil {
+		llog.ErrorS(ierr.GetError(), "[ERROR] - DeleteVolume: failed to list snapshots", "volumeID", volumeID)
+		return nil, ErrFailedToListSnapshot(volumeID)
+	}
+
+	if lstSnapshots.Len() > 0 {
+		llog.ErrorS(nil, "[ERROR] - DeleteVolume: CANNOT delete this volume because of having snapshots", "volumeId", volumeID)
+		return nil, ErrDeleteVolumeHavingSnapshots(volumeID)
+	}
+
 	if err := s.cloud.DeleteVolume(volumeID); err != nil {
 		if err != nil {
-			llog.ErrorS(err, "DeleteVolume: failed to delete volume", "volumeID", volumeID)
+			llog.ErrorS(err, "[ERROR] - DeleteVolume: failed to delete volume", "volumeID", volumeID)
 			return nil, ErrFailedToDeleteVolume(volumeID)
 		}
 	}
@@ -199,10 +217,10 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 }
 
 func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
-	llog.V(5).InfoS("ControllerPublishVolume: called", "preq", *preq)
+	llog.V(5).InfoS("[INFO] - ControllerPublishVolume: called with request", "preq", *preq)
 
 	if err = validateControllerPublishVolumeRequest(preq); err != nil {
-		llog.ErrorS(err, "ControllerPublishVolume: invalid request")
+		llog.ErrorS(err, "[ERROR] - ControllerPublishVolume: invalid request")
 		return nil, err
 	}
 
@@ -215,30 +233,30 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	}
 	defer s.inFlight.Delete(volumeID + nodeID)
 
-	llog.V(2).InfoS("ControllerPublishVolume: attaching volume into the instance", "volumeID", volumeID, "nodeID", nodeID)
+	llog.V(2).InfoS("[INFO] - ControllerPublishVolume: attaching volume into the instance", "volumeID", volumeID, "nodeID", nodeID)
 
 	// Attach the volume and wait for it to be attached
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)
 	if err != nil {
-		llog.ErrorS(err, "ControllerPublishVolume; failed to attach volume to instance", "volumeID", volumeID, "nodeID", nodeID)
+		llog.ErrorS(err, "[ERROR] - ControllerPublishVolume; failed to attach volume to instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, ErrAttachVolume(volumeID, nodeID)
 	}
 
 	devicePath, err := s.cloud.GetDeviceDiskID(volumeID)
 	if err != nil {
-		llog.ErrorS(err, "ControllerPublishVolume; failed to get device path for volume", "volumeID", volumeID)
+		llog.ErrorS(err, "[ERROR] - ControllerPublishVolume; failed to get device path for volume", "volumeID", volumeID)
 		return nil, ErrFailedToGetDevicePath(volumeID, nodeID)
 	}
 
-	llog.V(5).InfoS("ControllerPublishVolume; volume attached to instance successfully", "volumeID", volumeID, "nodeID", nodeID)
+	llog.V(5).InfoS("[INFO] - ControllerPublishVolume; volume attached to instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return newControllerPublishVolumeResponse(devicePath), nil
 }
 
 func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
-	llog.V(4).InfoS("ControllerUnpublishVolume: called", "preq", *preq)
+	llog.V(4).InfoS("[INFO] - ControllerUnpublishVolume: called", "preq", *preq)
 
 	if err := validateControllerUnpublishVolumeRequest(preq); err != nil {
-		llog.ErrorS(err, "ControllerUnpublishVolume: invalid request")
+		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: invalid request")
 		return nil, err
 	}
 
@@ -251,28 +269,33 @@ func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi
 	defer s.inFlight.Delete(volumeID + nodeID)
 
 	if volumeID == "" {
-		llog.Errorf("ControllerUnpublishVolume: VolumeID is required")
+		llog.Errorf("[ERROR] - ControllerUnpublishVolume: VolumeID is required")
 		return nil, ErrVolumeIDNotProvided
 	}
 
-	_, getErr := s.cloud.GetVolume(volumeID)
-	if getErr != nil && getErr.Code == lsdkEH.ErrCodeVolumeNotFound {
-		llog.InfoS("ControllerUnpublishVolume: volume not found", "volumeID", volumeID)
+	vol, getErr := s.cloud.GetVolume(volumeID)
+	if getErr != nil && getErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: volume not found", "volumeID", volumeID)
+		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
+	}
+
+	if !vol.AttachedTheInstance(nodeID) {
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: server does not attach this volume", "volumeID", volumeID, "serverId", nodeID)
 		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
 	err := s.cloud.DetachVolume(nodeID, volumeID)
 	if err != nil {
-		llog.ErrorS(err, "ControllerUnpublishVolume: failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
+		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, ErrDetachVolume(volumeID, nodeID)
 	}
 
-	llog.V(4).InfoS("ControllerUnpublishVolume: volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
+	llog.V(4).InfoS("[INFO] - ControllerUnpublishVolume: volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 }
 
 func (s *controllerService) CreateSnapshot(_ lctx.Context, preq *lcsi.CreateSnapshotRequest) (*lcsi.CreateSnapshotResponse, error) {
-	llog.V(4).InfoS("CreateSnapshot: called", "preq", *preq)
+	llog.V(4).InfoS("[INFO] - CreateSnapshot: called", "preq", *preq)
 	if err := validateCreateSnapshotRequest(preq); err != nil {
 		llog.ErrorS(err, "CreateSnapshot: invalid request")
 		return nil, err
@@ -299,14 +322,7 @@ func (s *controllerService) CreateSnapshot(_ lctx.Context, preq *lcsi.CreateSnap
 		return newCreateSnapshotResponse(snapshot)
 	}
 
-	snapshot, err = s.cloud.CreateSnapshotFromVolume(volumeID,
-		&lsdkSnapshotV2.CreateOpts{
-			Name:        snapshotName,
-			Description: lfmt.Sprintf(patternSnapshotDescription, volumeID, s.getClusterID()),
-			Permanently: true,
-		},
-	)
-
+	snapshot, err = s.cloud.CreateSnapshotFromVolume(s.getClusterID(), volumeID, snapshotName)
 	if err != nil {
 		llog.ErrorS(err, "CreateSnapshot: Error creating snapshot", "snapshotName", snapshotName, "volumeID", volumeID)
 		return nil, err
@@ -353,9 +369,9 @@ func (s *controllerService) ListSnapshots(_ lctx.Context, preq *lcsi.ListSnapsho
 	nextToken := parsePage(preq.GetStartingToken())
 	maxEntries := int(preq.GetMaxEntries())
 
-	cloudSnapshots, err := s.cloud.ListSnapshots(volumeID, nextToken, maxEntries)
-	if err != nil {
-		llog.ErrorS(err, "ListSnapshots: Error listing snapshots", "volumeID", volumeID, "nextToken", nextToken, "maxEntries", maxEntries)
+	cloudSnapshots, ierr := s.cloud.ListSnapshots(volumeID, nextToken, maxEntries)
+	if ierr != nil {
+		llog.ErrorS(ierr.GetError(), "ListSnapshots: Error listing snapshots", "volumeID", volumeID, "nextToken", nextToken, "maxEntries", maxEntries)
 		return nil, ErrFailedToListSnapshot(volumeID)
 	}
 
@@ -377,7 +393,7 @@ func (s *controllerService) ValidateVolumeCapabilities(pctx lctx.Context, preq *
 	}
 
 	if _, err := s.cloud.GetVolume(volumeID); err != nil {
-		if err.Code == lsdkEH.ErrCodeVolumeNotFound {
+		if err.IsError(lsdkErrs.EcVServerVolumeNotFound) {
 			return nil, ErrVolumeNotFound(volumeID)
 		}
 
@@ -440,7 +456,7 @@ func (s *controllerService) ControllerExpandVolume(_ lctx.Context, preq *lcsi.Co
 
 	volume, err := s.cloud.GetVolume(volumeID)
 	if err != nil {
-		llog.ErrorS(err.Error, "ControllerExpandVolume: failed to get volume", "volumeID", volumeID)
+		llog.ErrorS(err.GetError(), "ControllerExpandVolume: failed to get volume", "volumeID", volumeID)
 		return nil, ErrFailedToGetVolume(volumeID)
 	}
 
@@ -513,7 +529,7 @@ func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmr
 
 	volume, errSdk := s.cloud.GetVolume(volumeID)
 	if errSdk != nil {
-		llog.ErrorS(errSdk.Error, "ModifyVolumeProperties: failed to get volume", "volumeID", volumeID)
+		llog.ErrorS(errSdk.GetError(), "ModifyVolumeProperties: failed to get volume", "volumeID", volumeID)
 		return nil, ErrFailedToGetVolume(volumeID)
 	}
 
@@ -553,7 +569,40 @@ func (s *controllerService) getClusterID() string {
 	return s.driverOptions.clusterID
 }
 
-func newCreateVolumeResponse(disk *lsdkObj.Volume, pcvr *CreateVolumeRequest, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
+func (s *controllerService) getVolSizeBytes(preq *lcsi.CreateVolumeRequest) (volSizeBytes int64, err error) {
+	// get the volume size that user provided
+	if preq.GetCapacityRange() != nil {
+		volSizeBytes = preq.GetCapacityRange().GetRequiredBytes()
+	}
+
+	// Get the volume type that user specified in the StorageClass
+	volType, ok := preq.GetParameters()[VolumeTypeKey]
+	if !ok {
+		// If the user forget to specify the volume type, get the default volume type
+		tmpVolType, sdkErr := s.cloud.GetDefaultVolumeType()
+		if sdkErr != nil {
+			return 0, sdkErr.GetError()
+		}
+
+		volType = tmpVolType.Id
+	}
+
+	// Get the minimum volume size allowed by the volume type
+	volTypeEntity, sdkErr := s.cloud.GetVolumeTypeById(volType)
+	if sdkErr != nil {
+		return 0, sdkErr.GetError()
+	}
+
+	// Calculate the bytes that cloud provider allowing to create the volume
+	cvs := lsutil.GiBToBytes(int64(volTypeEntity.MinSize))
+	if volSizeBytes < cvs {
+		return 0, ErrVolumeSizeTooSmall(preq.GetName(), volSizeBytes)
+	}
+
+	return volSizeBytes, nil
+}
+
+func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
 	var vcs *lcsi.VolumeContentSource
 	if pcvr.SnapshotID != "" {
 		vcs = &lcsi.VolumeContentSource{
@@ -567,7 +616,7 @@ func newCreateVolumeResponse(disk *lsdkObj.Volume, pcvr *CreateVolumeRequest, pr
 
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
-			VolumeId:      disk.VolumeId,
+			VolumeId:      disk.Id,
 			CapacityBytes: int64(disk.Size * 1024 * 1024 * 1024),
 			VolumeContext: prespCtx,
 			ContentSource: vcs,
@@ -575,7 +624,7 @@ func newCreateVolumeResponse(disk *lsdkObj.Volume, pcvr *CreateVolumeRequest, pr
 	}
 }
 
-func newCreateSnapshotResponse(snapshot *lsdkObj.Snapshot) (*lcsi.CreateSnapshotResponse, error) {
+func newCreateSnapshotResponse(snapshot *lsentity.Snapshot) (*lcsi.CreateSnapshotResponse, error) {
 	creationTime, err := ltime.Parse("2006-01-02T15:04:05.000-07:00", snapshot.CreatedAt)
 	if err != nil {
 		creationTime = ltime.Now()
@@ -583,8 +632,8 @@ func newCreateSnapshotResponse(snapshot *lsdkObj.Snapshot) (*lcsi.CreateSnapshot
 
 	return &lcsi.CreateSnapshotResponse{
 		Snapshot: &lcsi.Snapshot{
-			SnapshotId:     snapshot.ID,
-			SourceVolumeId: snapshot.VolumeID,
+			SnapshotId:     snapshot.Id,
+			SourceVolumeId: snapshot.VolumeId,
 			SizeBytes:      snapshot.VolumeSize * lsutil.GiB,
 			CreationTime:   lts.New(creationTime),
 			ReadyToUse:     true,
@@ -592,10 +641,10 @@ func newCreateSnapshotResponse(snapshot *lsdkObj.Snapshot) (*lcsi.CreateSnapshot
 	}, nil
 }
 
-func newListSnapshotsResponse(psnapshotList *lsdkObj.SnapshotList) *lcsi.ListSnapshotsResponse {
+func newListSnapshotsResponse(psnapshotList *lsentity.ListSnapshots) *lcsi.ListSnapshotsResponse {
 	var entries []*lcsi.ListSnapshotsResponse_Entry
 	for _, snapshot := range psnapshotList.Items {
-		snapshotResponseEntry := newListSnapshotsResponseEntry(&snapshot)
+		snapshotResponseEntry := newListSnapshotsResponseEntry(snapshot)
 		entries = append(entries, snapshotResponseEntry)
 	}
 
@@ -627,7 +676,7 @@ func newGetSnapshotsResponse(psnapshotID string) *lcsi.ListSnapshotsResponse {
 	}
 }
 
-func newListSnapshotsResponseEntry(snapshot *lsdkObj.Snapshot) *lcsi.ListSnapshotsResponse_Entry {
+func newListSnapshotsResponseEntry(snapshot *lsdkEntity.Snapshot) *lcsi.ListSnapshotsResponse_Entry {
 	creationTime, err := ltime.Parse("2006-01-02T15:04:05.000-07:00", snapshot.CreatedAt)
 	if err != nil {
 		creationTime = ltime.Now()
@@ -635,8 +684,8 @@ func newListSnapshotsResponseEntry(snapshot *lsdkObj.Snapshot) *lcsi.ListSnapsho
 
 	return &lcsi.ListSnapshotsResponse_Entry{
 		Snapshot: &lcsi.Snapshot{
-			SnapshotId:     snapshot.ID,
-			SourceVolumeId: snapshot.VolumeID,
+			SnapshotId:     snapshot.Id,
+			SourceVolumeId: snapshot.VolumeId,
 			SizeBytes:      snapshot.Size * lsutil.GiB,
 			CreationTime:   lts.New(creationTime),
 			ReadyToUse:     snapshot.Status == lscloud.SnapshotActiveStatus,

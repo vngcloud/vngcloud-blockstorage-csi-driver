@@ -1,11 +1,12 @@
 package cloud
 
 import (
+	ltime "time"
+
 	lset "github.com/cuongpiger/joat/data-structure/set"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
-	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
-	lsdkEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
-	"time"
+	lsdkErrs "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/sdk_error"
+
+	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
 const (
@@ -17,29 +18,20 @@ const (
 )
 
 const (
-	DefaultDiskSymbolIdLength = 20
-
 	// DefaultVolumeSize represents the default volume size.
-	DefaultVolumeSize int64 = 20 * util.GiB
-
-	defaultPage     = 1
-	defaultPageSize = 100
+	DefaultVolumeSize int64 = 5 * lsutil.GiB
 )
 
 const (
-	waitVolumeActiveTimeout = 5 * time.Minute
+	waitVolumeActiveTimeout = 5 * ltime.Minute
 	waitVolumeActiveDelay   = 10
 	waitVolumeActiveSteps   = 5
 
-	waitVolumeDetachTimeout = 7 * time.Minute
-	waitVolumeDetachDelay   = 10
-	waitVolumeDetachSteps   = 5
-
-	waitVolumeAttachTimeout = 7 * time.Minute
+	waitVolumeAttachTimeout = 7 * ltime.Minute
 	waitVolumeAttachDelay   = 10
 	waitVolumeAttachSteps   = 5
 
-	waitSnapshotActiveTimeout = 5 * time.Minute
+	waitSnapshotActiveTimeout = 5 * ltime.Minute
 	waitSnapshotActiveDelay   = 10
 	waitSnapshotActiveSteps   = 5
 )
@@ -48,15 +40,20 @@ const (
 	VolumeAvailableStatus = "AVAILABLE"
 	VolumeInUseStatus     = "IN-USE"
 	VolumeCreatingStatus  = "CREATING"
+	VolumeErrorStatus     = "ERROR"
 
 	SnapshotActiveStatus = "ACTIVE"
 )
 
 var (
-	errSetDetachIngore = lset.NewSet[lsdkErr.ErrorCode](lsdkEH.ErrCodeVolumeAvailable, lsdkEH.ErrCodeVolumeNotFound)
+	errSetDetachIngore = lset.NewSet[lsdkErrs.ErrorCode](lsdkErrs.EcVServerVolumeNotFound, lsdkErrs.EcVServerVolumeAvailable)
 )
 
 var (
 	volumeArchivedStatus  = lset.NewSet[string](VolumeAvailableStatus, VolumeInUseStatus)
 	volumeAvailableStatus = lset.NewSet[string](VolumeAvailableStatus)
+)
+
+const (
+	patternSnapshotDescription = "Snapshot of PersistentVolume %s for vKS cluster %s"
 )

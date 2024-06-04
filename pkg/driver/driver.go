@@ -4,13 +4,14 @@ import (
 	"context"
 	"fmt"
 	csi "github.com/container-storage-interface/spec/lib/go/csi"
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"k8s.io/klog/v2"
 	"net"
 	"time"
+
+	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
 // Mode is the operating mode of the CSI driver.
@@ -45,6 +46,9 @@ type DriverOptions struct { // nolint: maligned
 	vServerURL                        string
 	batching                          bool
 	clusterID                         string
+	cacheUri                          string
+	alertChannel                      string
+	alertChannelSize                  int
 	tagKeyLength                      int
 	tagValueLength                    int
 }
@@ -94,6 +98,24 @@ func WithEndpoint(endpoint string) func(*DriverOptions) {
 func WithMode(mode Mode) func(*DriverOptions) {
 	return func(o *DriverOptions) {
 		o.mode = mode
+	}
+}
+
+func WithAlertChannel(alertChannel string) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.alertChannel = alertChannel
+	}
+}
+
+func WithAlertChannelSize(alertChannelSize int) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.alertChannelSize = alertChannelSize
+	}
+}
+
+func WithCacheUri(cacheUri string) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.cacheUri = cacheUri
 	}
 }
 

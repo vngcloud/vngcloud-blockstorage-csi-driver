@@ -1,102 +1,58 @@
 package cloud
 
 import (
-	"fmt"
-	"strings"
+	lctx "context"
+	lfmt "fmt"
 
-	lset "github.com/cuongpiger/joat/data-structure/set"
 	ljmath "github.com/cuongpiger/joat/math"
-	ljutils "github.com/cuongpiger/joat/utils"
+	ljtime "github.com/cuongpiger/joat/timer"
 	ljwait "github.com/cuongpiger/joat/utils/exponential-backoff"
-	"github.com/vngcloud/vngcloud-go-sdk/client"
-	lsdkErr "github.com/vngcloud/vngcloud-go-sdk/error"
-	"github.com/vngcloud/vngcloud-go-sdk/vngcloud"
-	lerrEH "github.com/vngcloud/vngcloud-go-sdk/vngcloud/errors"
-	lsdkObj "github.com/vngcloud/vngcloud-go-sdk/vngcloud/objects"
-	lvolAct "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/extensions/volume_actions"
-	lsnapshotV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/snapshot"
-	lvolV2 "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/blockstorage/v2/volume"
-	lvolAtch "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/compute/v2/extensions/volume_attach"
-	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/extensions/oauth2"
-	"github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/identity/v2/tokens"
-	lportal "github.com/vngcloud/vngcloud-go-sdk/vngcloud/services/portal/v1"
-	"k8s.io/klog/v2"
+	lsentity "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/entity"
+	lserr "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/errors"
+	lsdkClientV2 "github.com/vngcloud/vngcloud-go-sdk/v2/client"
+	lsdkEntity "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/entity"
+	lsdkErrs "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/sdk_error"
+	lsdkComputeV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/compute/v2"
+	lsdkPortalSvcV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v1"
+	lsdkVolumeV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/volume/v1"
+	lsdkVolumeV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/volume/v2"
+	llog "k8s.io/klog/v2"
 
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
 func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc MetadataService) (Cloud, error) {
-	vserverV1 := ljutils.NormalizeURL(vserverUrl) + "v1"
-	vserverV2 := ljutils.NormalizeURL(vserverUrl) + "v2"
+	projectID := metadataSvc.GetProjectID()
+	clientCfg := lsdkClientV2.NewSdkConfigure().
+		WithClientId(clientID).
+		WithClientSecret(clientSecret).
+		WithIamEndpoint(iamURL).
+		WithVServerEndpoint(vserverUrl)
 
-	pc, err := newVngCloud(iamURL, clientID, clientSecret)
-	if err != nil {
-		return nil, err
+	cloudClient := lsdkClientV2.NewClient(lctx.TODO()).Configure(clientCfg)
+
+	llog.V(5).InfoS("[DEBUG] - NodeGetInfo: Get the portal info and quota")
+	portal, sdkErr := cloudClient.VServerGateway().V1().PortalService().
+		GetPortalInfo(lsdkPortalSvcV1.NewGetPortalInfoRequest(projectID))
+
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get portal info")
+		return nil, sdkErr.GetError()
 	}
 
-	vserverV2Client, _ := vngcloud.NewServiceClient(vserverV2, pc, "vserver-v2")
-	vserverV1Client, _ := vngcloud.NewServiceClient(vserverV1, pc, "vserver-v1")
-	ei, err := setupPortalInfo(vserverV1Client, metadataSvc)
-	if err != nil {
-		return nil, err
-	}
+	llog.InfoS("[INFO] - NodeGetInfo: Received the portal info successfully", "portal", portal)
+	cloudClient = cloudClient.WithProjectId(portal.ProjectID)
 
 	return &cloud{
-		vServerV2:       vserverV2Client,
-		vServerV1:       vserverV1Client,
 		metadataService: metadataSvc,
-		extraInfo:       ei,
-	}, nil
-}
-
-func newVngCloud(iamURL, clientID, clientSecret string) (*client.ProviderClient, error) {
-	identityUrl := ljutils.NormalizeURL(iamURL) + "v2"
-	provider, _ := vngcloud.NewClient(identityUrl)
-	err := vngcloud.Authenticate(provider, &oauth2.AuthOptions{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		AuthOptionsBuilder: &tokens.AuthOptions{
-			IdentityEndpoint: iamURL,
-		},
-	})
-
-	return provider, err
-}
-
-func setupPortalInfo(pportalClient *client.ServiceClient, pmetadataSvc MetadataService) (*extraInfa, error) {
-	projectID := pmetadataSvc.GetProjectID()
-	if len(projectID) < 1 {
-		return nil, fmt.Errorf("projectID is empty")
-	}
-
-	klog.InfoS("setupPortalInfo", "projectID", projectID)
-
-	portalInfo, err := lportal.Get(pportalClient, projectID)
-	if err != nil {
-		return nil, err
-	}
-
-	if portalInfo == nil {
-		return nil, fmt.Errorf("can not get portal information")
-	}
-
-	return &extraInfa{
-		ProjectID: portalInfo.ProjectID,
-		UserID:    portalInfo.UserID,
+		client:          cloudClient,
 	}, nil
 }
 
 type (
 	cloud struct {
-		vServerV1       *client.ServiceClient
-		vServerV2       *client.ServiceClient
-		extraInfo       *extraInfa
 		metadataService MetadataService
-	}
-
-	extraInfa struct {
-		ProjectID string
-		UserID    int64
+		client          lsdkClientV2.IClient
 	}
 
 	// ModifyDiskOptions represents parameters to modify a volume
@@ -105,110 +61,175 @@ type (
 	}
 )
 
-func (s *cloud) CreateVolume(popts *lvolV2.CreateOpts) (*lsdkObj.Volume, error) {
-	opts := lvolV2.NewCreateOpts(s.getProjectID(), popts)
-	vol, err := lvolV2.Create(s.vServerV2, opts)
+func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeRequest) (*lsentity.Volume, lserr.IError) {
+	var (
+		vol, tmpVol *lsdkEntity.Volume
+		serr        lserr.IError
+		sdkErr      lsdkErrs.ISdkError
+	)
 
-	if err != nil {
-		return nil, err
+	// Get the volume depend on the volume name
+	if preq.GetVolumeName() != "" {
+		llog.InfoS("[INFO] - EitherCreateResizeVolume: Get the volume by name", "volumeName", preq.GetVolumeName())
+		vol, serr = s.getVolumeByName(preq.GetVolumeName())
+		if serr != nil {
+			if !serr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+				llog.ErrorS(serr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to get the volume by name", serr.GetListParameters()...)
+				return nil, serr
+			}
+		}
 	}
 
-	vol, err = s.waitVolumeAchieveStatus(vol.VolumeId, volumeAvailableStatus)
-	if err != nil {
-		return nil, err
-	}
+	if vol != nil {
+		newSize := ljmath.MaxNumeric(vol.Size, uint64(preq.GetSize()))
+		newVolumeType := preq.GetVolumeType()
+		if vol.Size != newSize || vol.VolumeTypeID != newVolumeType {
+			llog.InfoS("[INFO] - EitherCreateResizeVolume: Resize the volume", "volumeID", vol.Id, "newSize", newSize, "newVolumeType", newVolumeType)
+			opt := lsdkVolumeV2.NewResizeBlockVolumeByIdRequest(newVolumeType, vol.Id, int(newSize))
+			tmpVol, sdkErr = s.client.VServerGateway().V2().VolumeService().ResizeBlockVolumeById(opt)
+			if sdkErr != nil {
+				if sdkErr.IsError(lsdkErrs.EcVServerVolumeUnchanged) {
+					return &lsentity.Volume{Volume: tmpVol}, nil
+				}
 
-	newSize := ljmath.MaxNumeric(vol.Size, popts.Size)
-	newVolumeType := popts.VolumeTypeId
-	if vol.Size != newSize || vol.VolumeTypeID != newVolumeType {
-		if err = s.ExpandVolume(vol.VolumeId, newVolumeType, newSize); err != nil {
-			return nil, err
+				llog.ErrorS(sdkErr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to resize the volume", sdkErr.GetListParameters()...)
+				return nil, lserr.NewError(sdkErr)
+			}
+
+			vol = tmpVol
 		}
 
-		vol.Size = newSize
-		vol.VolumeTypeID = newVolumeType
+		return &lsentity.Volume{Volume: vol}, nil
 	}
 
-	return vol, err
-}
-
-func (s *cloud) GetVolumeByName(pvolName string) (*lsdkObj.VolumeList, error) {
-	opts := lvolV2.NewListOpts(s.getProjectID(), pvolName, defaultPage, defaultPageSize)
-	vl, err := lvolV2.List(s.vServerV2, opts)
-	if err != nil {
-		return nil, err.Error
+	llog.InfoS("[INFO] - EitherCreateResizeVolume: Create the volume", preq.GetListParameters()...)
+	vol, sdkErr = s.client.VServerGateway().V2().VolumeService().CreateBlockVolume(preq)
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to create the volume", sdkErr.GetListParameters()...)
+		return nil, lserr.NewError(sdkErr)
 	}
 
-	return vl, nil
+	llog.InfoS("[INFO] - EitherCreateResizeVolume: Created the volume successfully", "volumeID", vol.Id)
+	return &lsentity.Volume{
+		Volume: vol,
+	}, nil
 }
 
-func (s *cloud) GetVolume(volumeID string) (*lsdkObj.Volume, *lsdkErr.SdkError) {
-	opts := lvolV2.NewGetOpts(s.getProjectID(), volumeID)
-	result, err := lvolV2.Get(s.vServerV2, opts)
-	return result, err
+func (s *cloud) GetVolumeByName(pvolName string) (*lsentity.Volume, lserr.IError) {
+	vol, serr := s.getVolumeByName(pvolName)
+	if serr != nil {
+		return nil, serr
+	}
+
+	return &lsentity.Volume{
+		Volume: vol,
+	}, nil
+}
+
+func (s *cloud) GetVolume(volumeID string) (*lsentity.Volume, lserr.IError) {
+	vol, serr := s.getVolumeById(volumeID)
+	if serr != nil {
+		return nil, serr
+	}
+
+	return &lsentity.Volume{
+		Volume: vol,
+	}, nil
 }
 
 func (s *cloud) DeleteVolume(volID string) error {
-	vol, err := s.GetVolume(volID)
-	if err != nil && err.Code == lerrEH.ErrCodeVolumeNotFound {
+	vol, ierr := s.GetVolume(volID)
+	if ierr != nil && ierr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
 		return nil
 	}
 
-	if vol.Status == VolumeAvailableStatus {
-		return lvolV2.Delete(s.vServerV2, lvolV2.NewDeleteOpts(s.extraInfo.ProjectID, volID))
+	if vol.CanDelete() {
+		_, err := s.waitVolumeAchieveStatus(volID, volumeAvailableStatus)
+		if err != nil {
+			return err
+		}
+
+		opt := lsdkVolumeV2.NewDeleteBlockVolumeByIdRequest(volID)
+		sdkErr := s.client.VServerGateway().V2().VolumeService().DeleteBlockVolumeById(opt)
+		if sdkErr != nil {
+			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+				return nil
+			}
+
+			return sdkErr.GetError()
+		}
 	}
 
 	return nil
 }
 
-func (s *cloud) AttachVolume(instanceID, volumeID string) (string, error) {
-	vol, err := s.GetVolume(volumeID)
+func (s *cloud) AttachVolume(pinstanceId, pvolumeId string) (*lsentity.Volume, error) {
+	var (
+		svol *lsentity.Volume
+		err  error
+	)
+
+	svol, err = s.waitVolumeAchieveStatus(pvolumeId, volumeArchivedStatus)
 	if err != nil {
-		return "", err.Error
+		return nil, err
 	}
 
-	if vol == nil {
-		return "", fmt.Errorf("volume %s not found", volumeID)
+	if svol.AttachedTheInstance(pinstanceId) {
+		return svol, nil
 	}
 
-	if vol.VmId != nil && *vol.VmId != "-1" {
-		return "", fmt.Errorf("volume %s already attached to instance %s", volumeID, *vol.VmId)
-	}
-
-	opts := lvolAtch.NewCreateOpts(s.getProjectID(), instanceID, volumeID)
-	_, err2 := lvolAtch.Attach(s.vServerV2, opts)
-	if err2 != nil {
-		if err2.Code == lerrEH.ErrCodeVolumeAlreadyAttached {
-			return vol.VolumeId, nil
+	opt := lsdkComputeV2.NewAttachBlockVolumeRequest(pinstanceId, pvolumeId)
+	sdkErr := s.client.VServerGateway().V2().ComputeService().AttachBlockVolume(opt)
+	if sdkErr != nil {
+		if !sdkErr.IsError(lsdkErrs.EcVServerVolumeAlreadyAttachedThisServer) {
+			return nil, sdkErr.GetError()
 		}
-
-		return "", err2.Error
 	}
 
-	err3 := s.waitDiskAttached(instanceID, volumeID)
+	err = s.waitDiskAttached(pinstanceId, pvolumeId)
+	return svol, err
 
-	return vol.VolumeId, err3
 }
 
-func (s *cloud) DetachVolume(instanceID, volumeID string) error {
-	_, err := lvolAtch.Detach(s.vServerV2, lvolAtch.NewDeleteOpts(s.getProjectID(), instanceID, volumeID))
-	// Disk has no attachments or not attached to the provided compute
-	if err != nil {
-		if errSetDetachIngore.ContainsOne(err.Code) {
-			return nil
+func (s *cloud) DetachVolume(pinstanceId, pvolumeId string) error {
+	if err := ljwait.ExponentialBackoff(ljwait.NewBackOff(10, 10, true, ljtime.Minute(10)), func() (bool, error) {
+		_, sdkErr := s.getVolumeById(pvolumeId)
+		if sdkErr != nil {
+			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+				return true, nil
+			}
+			return false, sdkErr.GetError()
 		}
 
-		return err.Error
+		opt := lsdkComputeV2.NewDetachBlockVolumeRequest(pinstanceId, pvolumeId)
+		sdkErr = s.client.VServerGateway().V2().ComputeService().DetachBlockVolume(opt)
+		if sdkErr != nil {
+			if errSetDetachIngore.ContainsOne(sdkErr.GetErrorCode()) {
+				return true, nil
+			}
+
+			if sdkErr.IsError(lsdkErrs.EcVServerVolumeInProcess) {
+				return false, nil
+			}
+
+			llog.ErrorS(sdkErr.GetError(), "[ERROR] - DetachVolume: Failed to detach the volume", sdkErr.GetListParameters()...)
+			return false, sdkErr.GetError()
+		}
+
+		return false, nil
+	}); err != nil {
+		return err
 	}
 
-	return s.waitDiskDetached(volumeID)
+	llog.V(5).InfoS("[DEBUG] - DetachVolume: Detached the volume successfully", "volumeId", pvolumeId, "instanceId", pinstanceId)
+	return nil
 }
 
 func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {
 	newSizeGiB := uint64(lsutil.RoundUpGiB(newSizeBytes))
-	volume, errSdk := s.GetVolume(volumeID)
-	if errSdk != nil {
-		return 0, errSdk.Error
+	volume, sdkErr := s.GetVolume(volumeID)
+	if sdkErr != nil {
+		return 0, sdkErr.GetError()
 	}
 
 	if newSizeGiB < volume.Size {
@@ -219,15 +240,62 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 		options.VolumeType = volume.VolumeTypeID
 	}
 
+	// Check that we need to modify this volume`
 	needsModification, volumeSize, err := s.validateModifyVolume(volumeID, newSizeGiB, options)
 	if err != nil || !needsModification {
 		return volumeSize, err
 	}
 
-	opts := lvolAct.NewResizeOpts(s.getProjectID(), options.VolumeType, volumeID, newSizeGiB)
-	_, errSdk = lvolAct.Resize(s.vServerV2, opts)
-	if errSdk != nil {
-		return 0, errSdk.Error
+	// The volume types are different => so please check the zone a same
+	same, sdkErr2 := s.checkSameZone(options.VolumeType, volume.VolumeTypeID)
+	if sdkErr2 != nil {
+		return 0, sdkErr2.GetError()
+	} else if !same && !volume.IsAttched() {
+		// In the case of these volume types are not in the same zone, we MUST migrate the volume to the target zone before resize this volume
+		err = ljwait.ExponentialBackoff(ljwait.NewBackOff(10, 10, true, ljtime.Minute(30)), func() (bool, error) {
+			volume, sdkErr = s.GetVolume(volumeID)
+			if sdkErr != nil {
+				return true, sdkErr.GetError()
+			}
+
+			if volume.IsMigration() || volume.IsCreating() {
+				return false, nil
+			} else if volumeArchivedStatus.ContainsOne(volume.Status) && volume.VolumeTypeID == options.VolumeType {
+				// Check the volume status is in the archived status
+				return true, nil
+			}
+
+			// So make a migration volume request to the VngCloud API
+			sdkErr2 = s.client.VServerGateway().V2().VolumeService().
+				MigrateBlockVolumeById(
+					lsdkVolumeV2.NewMigrateBlockVolumeByIdRequest(volumeID, options.VolumeType).
+						WithConfirm(true))
+
+			// In the case of getting an error from the VngCloud API
+			if sdkErr2 != nil {
+				switch sdkErr2.GetErrorCode() {
+				case lsdkErrs.EcVServerVolumeMigrateInSameZone, lsdkErrs.EcVServerVolumeMigrateBeingProcess, lsdkErrs.EcVServerVolumeMigrateProcessingConfirm, lsdkErrs.EcVServerVolumeMigrateBeingMigrating, lsdkErrs.EcVServerVolumeMigrateBeingFinish:
+					// These statuses are used to indicate that the volume is being migrated => continue to wait
+					return false, nil
+				default:
+					// In some other cases, we need to handle the error
+					return true, sdkErr2.GetError()
+				}
+			}
+
+			// Otherwise, we need to wait for the volume to be migrated
+			return false, nil
+		})
+
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	opt := lsdkVolumeV2.NewResizeBlockVolumeByIdRequest(volumeID, options.VolumeType, int(newSizeGiB))
+	_, sdkErr = s.client.VServerGateway().V2().VolumeService().ResizeBlockVolumeById(opt)
+	if sdkErr != nil && !sdkErr.IsError(lsdkErrs.EcVServerVolumeUnchanged) {
+		return 0, sdkErr.GetError()
 	}
 
 	_, err = s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
@@ -240,213 +308,119 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 }
 
 func (s *cloud) ExpandVolume(volumeID, volumeTypeID string, newSize uint64) error {
-	opts := lvolAct.NewResizeOpts(s.extraInfo.ProjectID, volumeTypeID, volumeID, newSize)
-	_, errSdk := lvolAct.Resize(s.vServerV2, opts)
-
-	if errSdk != nil {
-		if errSdk.Code == lerrEH.ErrCodeVolumeUnchanged {
-			return nil
-		}
-
-		return errSdk.Error
-	}
-
-	_, err := s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
+	//last := false
+	//err := ljwait.ExponentialBackoff(ljwait.NewBackOff(10, 10, true, ljtime.Minute(10)), func() (bool, error) {
+	//	vol, err := s.getVolumeById(volumeID)
+	//	if err != nil {
+	//		lsalert.HandleIError(err)
+	//		return true, err.GetError()
+	//	}
+	//
+	//	if volumeArchivedStatus.ContainsOne(vol.Status) {
+	//		if last {
+	//			return true, nil
+	//		}
+	//
+	//		opt := lsdkVolumeV2.NewResizeBlockVolumeByIdRequest(volumeID, volumeTypeID, int(newSize))
+	//		if _, sdkErr := s.client.VServerGateway().V2().VolumeService().ResizeBlockVolumeById(opt); sdkErr != nil {
+	//			if sdkErr.IsError(lsdkErrs.EcVServerVolumeUnchanged) {
+	//				return true, nil
+	//			}
+	//
+	//			lsalert.HandleSdkError(sdkErr)
+	//			return true, sdkErr.GetError()
+	//		}
+	//
+	//		last = true
+	//	}
+	//
+	//	return false, nil
+	//})
+	//
+	//return err
+	_, err := s.ResizeOrModifyDisk(volumeID, lsutil.GiBToBytes(int64(newSize)), &ModifyDiskOptions{
+		VolumeType: volumeTypeID,
+	})
 	return err
 }
 
 func (s *cloud) GetDeviceDiskID(pvolID string) (string, error) {
-	opts := lvolAct.NewMappingOpts(s.getProjectID(), pvolID)
-	res, err := lvolAct.GetMappingVolume(s.vServerV2, opts)
-
-	// Process error occurs
+	opts := lsdkVolumeV2.NewGetBlockVolumeByIdRequest(pvolID)
+	vol, err := s.client.VServerGateway().V2().VolumeService().GetUnderBlockVolumeId(opts)
 	if err != nil {
-		return "", err
+		llog.ErrorS(err.GetError(), "[ERROR] - GetDeviceDiskID: Failed to get the device disk ID", err.GetListParameters()...)
+		return "", err.GetError()
 	}
 
-	if len(res.UUID) < DefaultDiskSymbolIdLength {
-		return "", ErrDeviceVolumeIdNotFound
-	}
-
-	// Truncate the UUID for the virtual disk
-	return res.UUID, nil
+	return vol.UnderId, nil
 }
 
-func (s *cloud) GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsdkObj.Snapshot, error) {
-	res, err := lsnapshotV2.ListVolumeSnapshot(
-		s.vServerV2, lsnapshotV2.NewListVolumeOpts(s.getProjectID(), pvolID, defaultPage, defaultPageSize))
+func (s *cloud) GetVolumeSnapshotByName(pvolID, psnapshotName string) (*lsentity.Snapshot, error) {
+	opt := lsdkVolumeV2.NewListSnapshotsByBlockVolumeIdRequest(1, 10, pvolID)
+	res, err := s.client.VServerGateway().V2().VolumeService().ListSnapshotsByBlockVolumeId(opt)
 	if err != nil {
-		return nil, err.Error
+		return nil, err.GetError()
 	}
 
 	for _, snap := range res.Items {
-		if snap.VolumeID == pvolID && snap.Name == psnapshotName {
-			return &snap, nil
+		if snap.VolumeId == pvolID && snap.Name == psnapshotName {
+			return &lsentity.Snapshot{Snapshot: snap}, nil
 		}
 	}
 
 	return nil, ErrSnapshotNotFound
 }
 
-func (s *cloud) CreateSnapshotFromVolume(pvolID string, popts *lsnapshotV2.CreateOpts) (*lsdkObj.Snapshot, error) {
-	resp, err := lsnapshotV2.Create(s.vServerV2, lsnapshotV2.NewCreateOpts(s.getProjectID(), pvolID, popts))
-	if err != nil {
-		return nil, err
+func (s *cloud) CreateSnapshotFromVolume(pclusterId, pvolId, psnapshotName string) (*lsentity.Snapshot, error) {
+	opt := lsdkVolumeV2.NewCreateSnapshotByBlockVolumeIdRequest(psnapshotName, pvolId).
+		WithPermanently(true).
+		WithDescription(lfmt.Sprintf(patternSnapshotDescription, pvolId, pclusterId))
+
+	snapshot, sdkErr := s.client.VServerGateway().V2().VolumeService().CreateSnapshotByBlockVolumeId(opt)
+	if sdkErr != nil {
+		return nil, sdkErr.GetError()
 	}
 
-	err = s.waitSnapshotActive(popts.VolumeID, resp.Name)
-	return resp, err
+	err := s.waitSnapshotActive(pvolId, snapshot.Name)
+	return &lsentity.Snapshot{Snapshot: snapshot}, err
 }
 
 func (s *cloud) DeleteSnapshot(psnapshotID string) error {
-	err := lsnapshotV2.Delete(s.vServerV2, lsnapshotV2.NewDeleteOpts(s.getProjectID(), psnapshotID))
-	if err != nil && err.Code != lerrEH.ErrCodeSnapshotNotFound {
-		return err.Error
+	opt := lsdkVolumeV2.NewDeleteSnapshotByIdRequest(psnapshotID)
+	sdkErr := s.client.VServerGateway().V2().VolumeService().DeleteSnapshotById(opt)
+	if sdkErr != nil {
+		if !sdkErr.IsError(lsdkErrs.EcVServerSnapshotNotFound) {
+			return sdkErr.GetError()
+		}
 	}
-
 	return nil
 }
 
-func (s *cloud) ListSnapshots(pvolID string, ppage int, ppageSize int) (*lsdkObj.SnapshotList, error) {
-	opts := lsnapshotV2.NewListVolumeOpts(s.getProjectID(), pvolID, ppage, ppageSize)
-	resp, err := lsnapshotV2.ListVolumeSnapshot(s.vServerV2, opts)
+func (s *cloud) ListSnapshots(pvolID string, ppage int, ppageSize int) (*lsentity.ListSnapshots, lserr.IError) {
+	opt := lsdkVolumeV2.NewListSnapshotsByBlockVolumeIdRequest(ppage, ppageSize, pvolID)
+	res, sdkErr := s.client.VServerGateway().V2().VolumeService().ListSnapshotsByBlockVolumeId(opt)
+	if sdkErr != nil {
+		return nil, lserr.NewError(sdkErr)
+	}
+
+	return &lsentity.ListSnapshots{ListSnapshots: res}, nil
+}
+
+func (s *cloud) GetVolumeTypeById(pvolTypeId string) (*lsentity.VolumeType, lserr.IError) {
+	opt := lsdkVolumeV1.NewGetVolumeTypeByIdRequest(pvolTypeId)
+	volType, err := s.client.VServerGateway().V1().VolumeService().GetVolumeTypeById(opt)
 	if err != nil {
-		return nil, err.Error
+		return nil, lserr.NewError(err)
 	}
 
-	return resp, nil
+	return &lsentity.VolumeType{VolumeType: volType}, nil
 }
 
-func (s *cloud) waitVolumeAchieveStatus(pvolID string, pdesiredStatus lset.Set[string]) (*lsdkObj.Volume, error) {
-	var resVolume *lsdkObj.Volume
-	err := ljwait.ExponentialBackoff(ljwait.NewBackOff(waitVolumeActiveSteps, waitVolumeActiveDelay, true, waitVolumeActiveTimeout), func() (bool, error) {
-		vol, err := s.GetVolume(pvolID)
-		if err != nil {
-			return false, err.Error
-		}
-
-		if pdesiredStatus.ContainsOne(vol.Status) {
-			resVolume = vol
-			return true, nil
-		}
-
-		return false, nil
-	})
-
+func (s *cloud) GetDefaultVolumeType() (*lsentity.VolumeType, lserr.IError) {
+	volType, err := s.client.VServerGateway().V1().VolumeService().GetDefaultVolumeType()
 	if err != nil {
-		return nil, err
+		return nil, lserr.NewError(err)
 	}
 
-	return resVolume, nil
-}
-
-func (s *cloud) waitSnapshotActive(pvolID, psnapshotName string) error {
-	return ljwait.ExponentialBackoff(ljwait.NewBackOff(waitSnapshotActiveSteps, waitSnapshotActiveDelay, true, waitSnapshotActiveTimeout), func() (bool, error) {
-		vol, err := s.GetVolumeSnapshotByName(pvolID, psnapshotName)
-		if err != nil {
-			return false, err
-		}
-
-		if vol.Status == SnapshotActiveStatus {
-			return true, nil
-		}
-
-		return false, nil
-	})
-}
-
-func (s *cloud) waitDiskDetached(volumeID string) error {
-	return ljwait.ExponentialBackoff(
-		ljwait.NewBackOff(waitVolumeDetachSteps, waitVolumeDetachDelay, true, waitVolumeDetachTimeout),
-		func() (bool, error) {
-			vol, err := s.GetVolume(volumeID)
-			if err != nil {
-				return false, err.Error
-			}
-
-			if vol.Status == VolumeAvailableStatus || (vol.Status == VolumeInUseStatus && len(vol.AttachedMachine) > 0) {
-				return true, nil
-			}
-
-			return false, nil
-		},
-	)
-}
-
-func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
-	return ljwait.ExponentialBackoff(ljwait.NewBackOff(waitVolumeAttachSteps, waitVolumeAttachDelay, true, waitVolumeAttachTimeout), func() (bool, error) {
-		vol, err := s.GetVolume(volumeID)
-		if err != nil {
-			return false, err.Error
-		}
-
-		if vol.VmId != nil && *vol.VmId == instanceID && vol.Status == VolumeInUseStatus {
-			return true, nil
-
-		}
-
-		return false, nil
-	})
-}
-
-func (s *cloud) getProjectID() string {
-	return s.extraInfo.ProjectID
-}
-
-func (s *cloud) validateModifyVolume(volumeID string, newSizeGiB uint64, options *ModifyDiskOptions) (bool, int64, error) {
-	volume, err := s.GetVolume(volumeID)
-	if err != nil {
-		return true, 0, err.Error
-	}
-
-	// At this point, we know we are starting a new volume modification
-	// If we're asked to modify a volume to its current state, ignore the request and immediately return a success
-	if !needsVolumeModification(volume, newSizeGiB, options) {
-		// Wait for any existing modifications to prevent race conditions where DescribeVolume(s) returns the new
-		// state before the volume is actually finished modifying
-		_, err2 := s.waitVolumeAchieveStatus(volumeID, volumeArchivedStatus)
-		if err != nil {
-			return true, int64(volume.Size), err2
-		}
-
-		returnGiB, returnErr := s.checkDesiredState(volumeID, newSizeGiB, options)
-		return false, returnGiB, returnErr
-	}
-
-	return true, 0, nil
-}
-
-func (s *cloud) checkDesiredState(volumeID string, desiredSizeGiB uint64, options *ModifyDiskOptions) (int64, error) {
-	volume, err := s.GetVolume(volumeID)
-	if err != nil {
-		return 0, err.Error
-	}
-
-	// AWS resizes in chunks of GiB (not GB)
-	realSizeGiB := int64(volume.Size)
-
-	// Check if there is a mismatch between the requested modification and the current volume
-	// If there is, the volume is still modifying and we should not return a success
-	if uint64(realSizeGiB) < desiredSizeGiB {
-		return realSizeGiB, fmt.Errorf("volume %q is still being expanded to %d size", volumeID, desiredSizeGiB)
-	} else if options.VolumeType != "" && !strings.EqualFold(volume.VolumeTypeID, options.VolumeType) {
-		return realSizeGiB, fmt.Errorf("volume %q is still being modified to type %q", volumeID, options.VolumeType)
-	}
-
-	return realSizeGiB, nil
-}
-
-func needsVolumeModification(volume *lsdkObj.Volume, newSizeGiB uint64, options *ModifyDiskOptions) bool {
-	oldSizeGiB := volume.Size
-	needsModification := false
-
-	if oldSizeGiB < newSizeGiB {
-		needsModification = true
-	}
-
-	if options.VolumeType != "" && !strings.EqualFold(volume.VolumeTypeID, options.VolumeType) {
-		needsModification = true
-	}
-
-	return needsModification
+	return &lsentity.VolumeType{VolumeType: volType}, nil
 }

@@ -3,18 +3,16 @@ package driver
 import (
 	"errors"
 	"fmt"
-	"github.com/cuongpiger/joat/math"
 	ljoat "github.com/cuongpiger/joat/parser"
 	"strconv"
 	"strings"
 
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	"github.com/vngcloud/vngcloud-csi-volume-modifier/pkg/rpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/klog/v2"
-
-	"github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 )
 
 func ValidateDriverOptions(options *DriverOptions) error {
@@ -218,13 +216,4 @@ func validateDeleteSnapshotRequest(req *lcsi.DeleteSnapshotRequest) error {
 		return status.Error(codes.InvalidArgument, "Snapshot ID not provided")
 	}
 	return nil
-}
-
-func getVolSizeBytes(preq *lcsi.CreateVolumeRequest) (volSizeBytes int64) {
-	// get the volume size that user provided
-	if preq.GetCapacityRange() != nil {
-		volSizeBytes = preq.GetCapacityRange().GetRequiredBytes()
-	}
-
-	return math.MaxNumeric(volSizeBytes, cloud.DefaultVolumeSize)
 }

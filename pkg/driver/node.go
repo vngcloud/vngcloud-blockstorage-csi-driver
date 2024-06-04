@@ -4,13 +4,10 @@ import (
 	lctx "context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
-
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	lsdkClientV2 "github.com/vngcloud/vngcloud-go-sdk/v2/client"
+	lsdkPortalSvcV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v1"
+	lsdkPortalSvcV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v2"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,6 +19,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/volume"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
 	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
@@ -502,14 +504,49 @@ func (s *nodeService) NodeGetCapabilities(_ lctx.Context, req *lcsi.NodeGetCapab
 }
 
 func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*lcsi.NodeGetInfoResponse, error) {
+	klog.V(5).InfoS("[DEBUG] - NodeGetInfo: START to get the node info")
 	nodeUUID := s.metadata.GetInstanceID()
 	zone := s.metadata.GetAvailabilityZone()
+	projectID := s.metadata.GetProjectID()
 
-	klog.V(5).InfoS("NodeGetInfo; called to get node info", "nodeUUID", nodeUUID, "zone", zone)
+	klog.InfoS("[INFO] - NodeGetInfo: the necessary information is retrieved successfully", "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
+	if len(projectID) < 1 {
+		klog.ErrorS(nil, "[ERROR] - NodeGetInfo; projectID is empty")
+		return nil, fmt.Errorf("projectID is empty")
+	}
 
+	clientCfg := lsdkClientV2.NewSdkConfigure().
+		WithClientId(s.driverOptions.clientID).
+		WithClientSecret(s.driverOptions.clientSecret).
+		WithIamEndpoint(s.driverOptions.identityURL).
+		WithVServerEndpoint(s.driverOptions.vServerURL)
+
+	cloudClient := lsdkClientV2.NewClient(lctx.TODO()).Configure(clientCfg)
+
+	klog.V(5).InfoS("[DEBUG] - NodeGetInfo: Get the portal info and quota")
+	portal, sdkErr := cloudClient.VServerGateway().V1().PortalService().
+		GetPortalInfo(lsdkPortalSvcV1.NewGetPortalInfoRequest(projectID))
+	if sdkErr != nil {
+		klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get portal info")
+		return nil, sdkErr.GetError()
+	}
+
+	klog.InfoS("[INFO] - NodeGetInfo: Received the portal info successfully", "portal", portal)
+	cloudClient = cloudClient.WithProjectId(portal.ProjectID)
+
+	quota, sdkErr := cloudClient.VServerGateway().V2().PortalService().
+		GetQuotaByName(lsdkPortalSvcV2.NewGetQuotaByNameRequest(lsdkPortalSvcV2.QtVolumeAttachLimit))
+
+	if sdkErr != nil {
+		klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get quota")
+		return nil, sdkErr.GetError()
+	}
+
+	klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
+		"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	return &lcsi.NodeGetInfoResponse{
 		NodeId:            nodeUUID,
-		MaxVolumesPerNode: 26,
+		MaxVolumesPerNode: int64(quota.Limit),
 		AccessibleTopology: &lcsi.Topology{
 			Segments: map[string]string{
 				ZoneTopologyKey: zone,

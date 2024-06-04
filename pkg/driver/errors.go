@@ -86,6 +86,10 @@ var (
 		return lstt.Errorf(lcodes.Internal, "CANNOT list snapshot for volume %s", pvolumeID)
 	}
 
+	ErrDeleteVolumeHavingSnapshots = func(pvolId string) error {
+		return lstt.Errorf(lcodes.FailedPrecondition, "Volume %s can not deleted", pvolId)
+	}
+
 	ErrFailedToGetVolume = func(pvolumeID string) error {
 		return lstt.Errorf(lcodes.Internal, "CANNOT get volume %s", pvolumeID)
 	}
@@ -104,6 +108,14 @@ var (
 
 	ErrFailedToListVolumeByName = func(pvolName string) error {
 		return lstt.Errorf(lcodes.Internal, "CANNOT list volume by name %s", pvolName)
+	}
+
+	ErrFailedToValidateVolumeSize = func(pvolumeID string, err error) error {
+		return lstt.Errorf(lcodes.Internal, "CANNOT validate volume size for volume %s: %w", pvolumeID, err)
+	}
+
+	ErrVolumeSizeTooSmall = func(pvolumeID string, psize int64) error {
+		return lstt.Errorf(lcodes.InvalidArgument, "Volume size %d is too small for volume %s", psize, pvolumeID)
 	}
 
 	ErrFailedToFindTargetPath = func(pdevicePath string, perr error) error {
