@@ -32,5 +32,5 @@ jobs:
           NEW_VERSION: ${{ steps.previoustag.outputs.tag }}
         run: |
           export REGISTRY=${{ vars.VCR_REGISTRY }}
-          export VERSION=${NEW_VERSION}
+          export VERSION=${{ github.ref_name }}
           make bush-local-images
