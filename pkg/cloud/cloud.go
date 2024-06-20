@@ -31,12 +31,13 @@ func NewCloud(iamURL, vserverUrl, clientID, clientSecret string, metadataSvc Met
 
 	cloudClient := lsdkClientV2.NewClient(lctx.TODO()).Configure(clientCfg)
 
-	llog.V(5).InfoS("[DEBUG] - NodeGetInfo: Get the portal info and quota")
+	llog.V(5).InfoS("[DEBUG] - NodeGetInfo: Get the portal info and quota",
+		"underProjectId", projectID, "iamURL", iamURL, "vserverUrl", vserverUrl, "clientID", clientID)
 	portal, sdkErr := cloudClient.VServerGateway().V1().PortalService().
 		GetPortalInfo(lsdkPortalSvcV1.NewGetPortalInfoRequest(projectID))
 
 	if sdkErr != nil {
-		llog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get portal info")
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get portal info", "errMsg", sdkErr.GetErrorMessages())
 		return nil, sdkErr.GetError()
 	}
 
