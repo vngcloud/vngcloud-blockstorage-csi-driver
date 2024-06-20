@@ -52,6 +52,7 @@ var (
 var (
 	volumeArchivedStatus  = lset.NewSet[string](VolumeAvailableStatus, VolumeInUseStatus)
 	volumeAvailableStatus = lset.NewSet[string](VolumeAvailableStatus)
+	availableDeleteStatus = lset.NewSet[string](VolumeAvailableStatus, VolumeErrorStatus)
 )
 
 const (

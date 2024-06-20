@@ -144,7 +144,7 @@ func (s *cloud) DeleteVolume(volID string) error {
 	}
 
 	if vol.CanDelete() {
-		_, err := s.waitVolumeAchieveStatus(volID, volumeAvailableStatus)
+		_, err := s.waitVolumeAchieveStatus(volID, availableDeleteStatus)
 		if err != nil {
 			return err
 		}
