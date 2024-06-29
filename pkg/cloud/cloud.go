@@ -193,7 +193,7 @@ func (s *cloud) AttachVolume(pinstanceId, pvolumeId string) (*lsentity.Volume, e
 }
 
 func (s *cloud) DetachVolume(pinstanceId, pvolumeId string) error {
-	if err := ljwait.ExponentialBackoff(ljwait.NewBackOff(10, 5, true, ljtime.Minute(10)), func() (bool, error) {
+	if err := ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(10)), func() (bool, error) {
 		_, sdkErr := s.getVolumeById(pvolumeId)
 		if sdkErr != nil {
 			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {

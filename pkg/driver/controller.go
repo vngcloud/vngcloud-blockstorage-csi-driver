@@ -293,10 +293,10 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 }
 
 func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
-	llog.V(4).InfoS("[INFO] - ControllerUnpublishVolume: called", "preq", *preq)
+	llog.V(4).InfoS("[INFO] - ControllerUnpublishVolume: Called", "preq", *preq)
 
 	if err := validateControllerUnpublishVolumeRequest(preq); err != nil {
-		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: invalid request")
+		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: Invalid request")
 		return nil, err
 	}
 
@@ -315,18 +315,18 @@ func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi
 
 	vol, getErr := s.cloud.GetVolume(volumeID)
 	if getErr != nil && getErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
-		llog.InfoS("[INFO] - ControllerUnpublishVolume: volume not found", "volumeID", volumeID)
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: Volume not found", "volumeID", volumeID)
 		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
 	if !vol.AttachedTheInstance(nodeID) {
-		llog.InfoS("[INFO] - ControllerUnpublishVolume: server does not attach this volume", "volumeID", volumeID, "serverId", nodeID)
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: Server does not attach this volume", "volumeID", volumeID, "serverId", nodeID)
 		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 	}
 
 	err := s.cloud.DetachVolume(nodeID, volumeID)
 	if err != nil {
-		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
+		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: Failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, ErrDetachVolume(volumeID, nodeID)
 	}
 
