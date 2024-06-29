@@ -13,3 +13,8 @@ const (
 	EcK8sStorageClassFailedToGet = lsdkErrs.ErrorCode("K8sStorageClassFailedToGet")
 	EcK8sStorageClassNotFound    = lsdkErrs.ErrorCode("K8sStorageClassNotFound")
 )
+
+// VngCloud BlockStorage Volume
+const (
+	EcVServerVolumeIsInErrorState = lsdkErrs.ErrorCode("VServerVolumeIsInErrorState")
+)

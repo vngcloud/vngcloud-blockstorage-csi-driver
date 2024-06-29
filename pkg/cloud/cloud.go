@@ -308,37 +308,44 @@ func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options 
 	return s.checkDesiredState(volumeID, newSizeGiB, options)
 }
 
+func (s *cloud) ModifyVolumeType(pvolumeId, pvolumeType string, psize int) lserr.IError {
+	llog.InfoS("[INFO] - ModifyVolumeType: Modify the volume type", "volumeId", pvolumeId, "volumeType", pvolumeType, "size", psize)
+	opts := lsdkVolumeV2.NewResizeBlockVolumeByIdRequest(pvolumeId, pvolumeType, psize)
+	_, sdkErr := s.client.VServerGateway().V2().VolumeService().ResizeBlockVolumeById(opts)
+
+	if sdkErr != nil {
+		if !sdkErr.IsError(lsdkErrs.EcVServerVolumeUnchanged) {
+			llog.ErrorS(sdkErr.GetError(), "[ERROR] - ModifyVolumeType: Failed to modify the volume type", sdkErr.GetListParameters()...)
+			return lserr.NewError(sdkErr)
+		}
+	}
+
+	var ierr lserr.IError
+	llog.InfoS("[INFO] - ModifyVolumeType: Modified the volume type successfully, waiting the volume to be desired state", "volumeId", pvolumeId, "volumeType", pvolumeType, "size", psize)
+	_ = ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(20)), func() (bool, error) {
+		vol, sdkErr2 := s.GetVolume(pvolumeId)
+		if sdkErr2 != nil {
+			llog.ErrorS(sdkErr2.GetError(), "[ERROR] - ModifyVolumeType: Failed to get the volume", sdkErr2.GetListParameters()...)
+			return false, sdkErr2.GetError()
+		}
+
+		if volumeArchivedStatus.ContainsOne(vol.Status) && vol.VolumeTypeID == pvolumeType {
+			return true, nil
+		}
+
+		// if the volume is in ERROR state => return right now
+		if vol.IsError() {
+			ierr = lserr.ErrVolumeIsInErrorState(pvolumeId)
+			return false, ierr.GetError()
+		}
+
+		return false, nil
+	})
+
+	return ierr
+}
+
 func (s *cloud) ExpandVolume(volumeID, volumeTypeID string, newSize uint64) error {
-	//last := false
-	//err := ljwait.ExponentialBackoff(ljwait.NewBackOff(10, 10, true, ljtime.Minute(10)), func() (bool, error) {
-	//	vol, err := s.getVolumeById(volumeID)
-	//	if err != nil {
-	//		lsalert.HandleIError(err)
-	//		return true, err.GetError()
-	//	}
-	//
-	//	if volumeArchivedStatus.ContainsOne(vol.Status) {
-	//		if last {
-	//			return true, nil
-	//		}
-	//
-	//		opt := lsdkVolumeV2.NewResizeBlockVolumeByIdRequest(volumeID, volumeTypeID, int(newSize))
-	//		if _, sdkErr := s.client.VServerGateway().V2().VolumeService().ResizeBlockVolumeById(opt); sdkErr != nil {
-	//			if sdkErr.IsError(lsdkErrs.EcVServerVolumeUnchanged) {
-	//				return true, nil
-	//			}
-	//
-	//			lsalert.HandleSdkError(sdkErr)
-	//			return true, sdkErr.GetError()
-	//		}
-	//
-	//		last = true
-	//	}
-	//
-	//	return false, nil
-	//})
-	//
-	//return err
 	_, err := s.ResizeOrModifyDisk(volumeID, lsutil.GiBToBytes(int64(newSize)), &ModifyDiskOptions{
 		VolumeType: volumeTypeID,
 	})
