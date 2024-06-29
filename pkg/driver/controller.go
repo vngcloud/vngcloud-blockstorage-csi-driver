@@ -14,6 +14,7 @@ import (
 	lsdkErrs "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/sdk_error"
 	lts "google.golang.org/protobuf/types/known/timestamppb"
 	lk8s "k8s.io/client-go/kubernetes"
+	lk8srecord "k8s.io/client-go/tools/record"
 	llog "k8s.io/klog/v2"
 
 	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
@@ -29,6 +30,8 @@ type controllerService struct {
 	modifyVolumeManager *modifyVolumeManager
 	driverOptions       *DriverOptions
 	k8sClient           lk8s.Interface
+	recorder            lk8srecord.EventRecorder
+	broadcaster         lk8srecord.EventBroadcaster
 
 	lvmrpc.UnimplementedModifyServer
 }
@@ -37,7 +40,7 @@ type controllerService struct {
 func newControllerService(pdriOpts *DriverOptions) controllerService {
 	metadata, err := NewMetadataFunc(lscloud.DefaultVServerMetadataClient)
 	if err != nil {
-		llog.ErrorS(err, "Could not determine the metadata information for the driver")
+		llog.ErrorS(err, "[ERROR] - newControllerService: Could not determine the metadata information for the driver")
 		panic(err)
 	}
 
@@ -46,13 +49,28 @@ func newControllerService(pdriOpts *DriverOptions) controllerService {
 		panic(err)
 	}
 
-	k8sClient, _ := lscloud.DefaultKubernetesAPIClient()
+	// Create Kubernetes client
+	k8sClient, err := lscloud.DefaultKubernetesAPIClient()
+	if err != nil {
+		llog.ErrorS(err, "[ERROR] - newControllerService: Failed to create Kubernetes client")
+		panic(err)
+	}
+
+	// Create event braodcaster and recorder
+	broadcaster, recorder, err := lscloud.DefaultEventRecorder(k8sClient)
+	if err != nil {
+		llog.ErrorS(err, "[ERROR] - newControllerService: Failed to create event recorder")
+		panic(err)
+	}
+
 	return controllerService{
 		cloud:               cloudSrv,
 		inFlight:            lsinternal.NewInFlight(),
 		driverOptions:       pdriOpts,
 		modifyVolumeManager: newModifyVolumeManager(),
 		k8sClient:           k8sClient,
+		recorder:            recorder,
+		broadcaster:         broadcaster,
 	}
 }
 
