@@ -107,7 +107,7 @@ func (s *ServerOptions) AddFlags(fs *lflag.FlagSet) {
 	fs.StringVar(&s.HttpEndpoint, "http-endpoint", "", "The TCP network address where the HTTP server for metrics will listen (example: `:8080`). The default is empty string, which means the server is disabled.")
 	fs.BoolVar(&s.EnableOtelTracing, "enable-otel-tracing", false, "To enable opentelemetry tracing for the driver. The tracing is disabled by default. Configure the exporter endpoint with OTEL_EXPORTER_OTLP_ENDPOINT and other env variables, see https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/#general-sdk-configuration.")
 	fs.StringVar(&s.ClusterID, "cluster-id", "", "The unique ID of the cluster. This is used to identify the cluster in the logs.")
-	fs.IntVar(&s.TagKeyLength, "tag-key-length", 15, "The maximum length of the tag key.")
+	fs.IntVar(&s.TagKeyLength, "tag-key-length", 255, "The maximum length of the tag key.")
 	fs.IntVar(&s.TagValueLength, "tag-value-length", 255, "The maximum length of the tag value.")
 }
 
