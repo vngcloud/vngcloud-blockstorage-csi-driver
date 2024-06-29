@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	encryptedKey = lsconst.VngCloudCsiDriverNameAnnotation + "/" + lsconst.EncryptedSuffixAnnotation
+	encryptedKey  = lsconst.VngCloudCsiDriverNameAnnotation + "/" + lsconst.EncryptedSuffixAnnotation
+	volumeTypeKey = lsconst.VngCloudCsiDriverNameAnnotation + "/" + lsconst.VolumeTypeAnnotation
 )
 
 type PersistentVolumeClaim struct {
@@ -26,4 +27,8 @@ func (s *PersistentVolumeClaim) GetStorageClassName() string {
 
 func (s *PersistentVolumeClaim) GetCsiEncryptedAnnotation() string {
 	return s.Annotations[encryptedKey]
+}
+
+func (s *PersistentVolumeClaim) GetCsiVolumeTypeAnnotation() string {
+	return s.Annotations[volumeTypeKey]
 }

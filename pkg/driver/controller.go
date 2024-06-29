@@ -203,7 +203,14 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		return nil, ierr.GetError()
 	}
 
-	cvr = cvr.WithReclaimPolicy(sc.GetReclaimPolicyAsString())
+	cvr = cvr.WithReclaimPolicy(sc.GetReclaimPolicyAsString()).
+		WithVolumeTypeID(pvc.GetCsiVolumeTypeAnnotation())
+
+	// Check if the PVC annotations include the encrypted key
+	if pvc.GetCsiEncryptedAnnotation() != "" {
+		cvr = cvr.WithEncrypted(pvc.GetCsiEncryptedAnnotation())
+	}
+
 	resp, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
 	if sdkErr != nil {
 		llog.ErrorS(sdkErr.GetError(), "[ERROR] - CreateVolume: failed to create volume", sdkErr.GetErrorMessages())
