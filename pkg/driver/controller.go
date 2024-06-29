@@ -450,7 +450,7 @@ func (s *controllerService) ValidateVolumeCapabilities(pctx lctx.Context, preq *
 }
 
 func (s *controllerService) ControllerGetCapabilities(ctx lctx.Context, req *lcsi.ControllerGetCapabilitiesRequest) (*lcsi.ControllerGetCapabilitiesResponse, error) {
-	llog.V(4).InfoS("ControllerGetCapabilities: called", "args", *req)
+	llog.V(4).InfoS("[INFO] - ControllerGetCapabilities: Called", "request", *req)
 	var caps []*lcsi.ControllerServiceCapability
 	for _, capa := range controllerCaps {
 		c := &lcsi.ControllerServiceCapability{
