@@ -552,9 +552,10 @@ func (s *controllerService) ControllerModifyVolume(ctx lctx.Context, preq *lcsi.
 }
 
 func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmrpc.ModifyVolumePropertiesRequest) (*lvmrpc.ModifyVolumePropertiesResponse, error) {
-	llog.V(5).InfoS("ModifyVolumeProperties: called", "preq", preq)
+	llog.V(5).InfoS("[INFO] - ModifyVolumeProperties: Called", "request", preq)
 
 	if err := validateModifyVolumePropertiesRequest(preq); err != nil {
+		llog.ErrorS(err, "[ERROR] - ModifyVolumeProperties: Invalid request because of volume ID is empty", "request", preq)
 		return nil, err
 	}
 
@@ -569,16 +570,18 @@ func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmr
 
 	volume, errSdk := s.cloud.GetVolume(volumeID)
 	if errSdk != nil {
-		llog.ErrorS(errSdk.GetError(), "ModifyVolumeProperties: failed to get volume", "volumeID", volumeID)
+		llog.ErrorS(errSdk.GetError(), "[ERROR] - ModifyVolumeProperties: Failed to get volume", "volumeID", volumeID)
 		return nil, ErrFailedToGetVolume(volumeID)
 	}
 
 	if volume.VolumeTypeID == options.VolumeType {
-		llog.V(2).Infof("ModifyVolumeProperties: volume %s already has volume type %s", volumeID, options.VolumeType)
+		llog.V(2).Infof("[INFO] - ModifyVolumeProperties: Volume %s already has volume type %s", volumeID, options.VolumeType)
 		return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
 	}
 
-	err := s.cloud.ExpandVolume(volumeID, options.VolumeType, volume.Size)
+	_, err := s.cloud.ResizeOrModifyDisk(volumeID, lsutil.GiBToBytes(int64(volume.Size)), &lscloud.ModifyDiskOptions{
+		VolumeType: options.VolumeType,
+	})
 	if err != nil {
 		llog.ErrorS(err, "ModifyVolumeProperties: failed to modify volume", "volumeID", volumeID)
 		return nil, ErrFailedToModifyVolume(volumeID)
