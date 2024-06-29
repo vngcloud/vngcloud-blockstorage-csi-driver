@@ -3,11 +3,11 @@ package k8s
 import (
 	lctx "context"
 
-	lcorev1 "k8s.io/api/core/v1"
-
+	lsentity "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/entity"
 	lserr "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/errors"
 )
 
 type IKubernetes interface {
-	GetPersistentVolumeClaimByName(pctx lctx.Context, pnamespace, pname string) (*lcorev1.PersistentVolumeClaim, lserr.IError)
+	GetPersistentVolumeClaimByName(pctx lctx.Context, pnamespace, pname string) (*lsentity.PersistentVolumeClaim, lserr.IError)
+	GetStorageClassByName(pctx lctx.Context, pname string) (*lsentity.StorageClass, lserr.IError)
 }

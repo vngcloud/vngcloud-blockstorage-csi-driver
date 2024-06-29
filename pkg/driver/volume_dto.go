@@ -35,7 +35,7 @@ type CreateVolumeRequest struct {
 	NumberOfInodes  string
 	Ext4ClusterSize string
 	Ext4BigAlloc    bool
-	RetainPolicy    string
+	ReclaimPolicy   string
 
 	DriverOptions *DriverOptions
 }
@@ -158,6 +158,11 @@ func (s *CreateVolumeRequest) WithEncrypted(pencrypted string) *CreateVolumeRequ
 	return s
 }
 
+func (s *CreateVolumeRequest) WithReclaimPolicy(ppolicy string) *CreateVolumeRequest {
+	s.ReclaimPolicy = ppolicy
+	return s
+}
+
 func (s *CreateVolumeRequest) ToSdkCreateVolumeRequest() lsdkVolumeV2.ICreateBlockVolumeRequest {
 	opts := lsdkVolumeV2.NewCreateBlockVolumeRequest(s.VolumeName, s.VolumeTypeID, int64(s.VolumeSize)).
 		WithPoc(s.IsPoc).
@@ -192,6 +197,10 @@ func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []string {
 
 	if s.SnapshotID != "" {
 		vts = append(vts, ljoat.Truncate(lscloud.VksSnapshotIdTagKey, ptkl), ljoat.Truncate(s.SnapshotID, ptvl))
+	}
+
+	if s.ReclaimPolicy != "" {
+		vts = append(vts, ljoat.Truncate(lscloud.VksReclaimPolicyTagKey, ptkl), ljoat.Truncate(s.ReclaimPolicy, ptvl))
 	}
 
 	return vts

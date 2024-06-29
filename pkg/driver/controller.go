@@ -189,11 +189,21 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		WithVolumeTypeID(modifyOpts.VolumeType).
 		WithClusterID(s.getClusterID())
 
-	newPvc, _ := s.k8sClient.GetPersistentVolumeClaimByName(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag)
-	if newPvc != nil {
-		llog.InfoS("[INFO] - CreateVolume: Get the PVC info from the API server", "pvc", *newPvc)
+	// Get the proper PVC from the API server
+	pvc, ierr := s.k8sClient.GetPersistentVolumeClaimByName(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag)
+	if ierr != nil {
+		llog.ErrorS(ierr.GetError(), "[ERROR] - CreateVolume: Failed to get PVC", "pvcName", cvr.PvcNameTag, "pvcNamespace", cvr.PvcNamespaceTag)
+		return nil, ierr.GetError()
 	}
 
+	// Get the StorageClass from the API server
+	sc, ierr := s.k8sClient.GetStorageClassByName(pctx, pvc.GetStorageClassName())
+	if ierr != nil {
+		llog.ErrorS(ierr.GetError(), "[ERROR] - CreateVolume: Failed to get StorageClass", "storageClassName", pvc.GetStorageClassName())
+		return nil, ierr.GetError()
+	}
+
+	cvr = cvr.WithReclaimPolicy(sc.GetReclaimPolicyAsString())
 	resp, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
 	if sdkErr != nil {
 		llog.ErrorS(sdkErr.GetError(), "[ERROR] - CreateVolume: failed to create volume", sdkErr.GetErrorMessages())
