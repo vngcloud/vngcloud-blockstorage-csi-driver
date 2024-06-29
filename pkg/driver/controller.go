@@ -579,6 +579,7 @@ func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmr
 		return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
 	}
 
+	llog.InfoS("[INFO] - ModifyVolumeProperties: Modifying volume", "volumeID", volumeID, "newVolumeType", options.VolumeType, "oldVolumeType", volume.VolumeTypeID, "newSize", volume.Size)
 	_, err := s.cloud.ResizeOrModifyDisk(volumeID, lsutil.GiBToBytes(int64(volume.Size)), &lscloud.ModifyDiskOptions{
 		VolumeType: options.VolumeType,
 	})
