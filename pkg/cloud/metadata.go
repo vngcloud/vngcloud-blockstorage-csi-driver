@@ -61,7 +61,7 @@ func (s *VServerMetadata) GetMetadata() *VServerMetadata {
 }
 
 func NewMetadataService(vserverMetadataClient VServerMetadataClient) (MetadataService, error) {
-	klog.InfoS("retrieving instance data from vserver metadata")
+	klog.InfoS("[INFO] - NewMetadataService: Retrieving instance data from metadata service")
 	svc, err := vserverMetadataClient()
 	if err != nil {
 		klog.InfoS("error creating vServer metadata client", "err", err)

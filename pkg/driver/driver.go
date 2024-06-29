@@ -54,7 +54,7 @@ type DriverOptions struct { // nolint: maligned
 }
 
 func NewDriver(options ...func(*DriverOptions)) (*Driver, error) {
-	klog.InfoS("Driver Information", "Driver", DriverName, "Version", driverVersion)
+	klog.InfoS("[INFO] - NewDriver: Driver Information", "Driver", DriverName, "Version", driverVersion)
 
 	driverOptions := DriverOptions{
 		endpoint:                          DefaultCSIEndpoint,
@@ -225,7 +225,7 @@ func (s *Driver) Run() error {
 		return fmt.Errorf("unknown mode: %s", s.options.mode)
 	}
 
-	klog.V(4).InfoS("Listening for connections", "address", listener.Addr())
+	klog.V(4).InfoS("[INFO] - Run: Listening for connections", "address", listener.Addr())
 	return s.srv.Serve(listener)
 }
 
