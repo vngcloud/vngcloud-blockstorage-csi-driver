@@ -13,7 +13,6 @@ import (
 	lsdkEntity "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/entity"
 	lsdkErrs "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/sdk_error"
 	lts "google.golang.org/protobuf/types/known/timestamppb"
-	lk8s "k8s.io/client-go/kubernetes"
 	lk8srecord "k8s.io/client-go/tools/record"
 	llog "k8s.io/klog/v2"
 
@@ -21,6 +20,7 @@ import (
 	lsentity "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/entity"
 	lserr "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/errors"
 	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	lsk8s "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/k8s"
 	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 )
 
@@ -29,7 +29,7 @@ type controllerService struct {
 	inFlight            *lsinternal.InFlight
 	modifyVolumeManager *modifyVolumeManager
 	driverOptions       *DriverOptions
-	k8sClient           lk8s.Interface
+	k8sClient           lsk8s.IKubernetes
 	recorder            lk8srecord.EventRecorder
 	broadcaster         lk8srecord.EventBroadcaster
 
@@ -68,13 +68,13 @@ func newControllerService(pdriOpts *DriverOptions) controllerService {
 		inFlight:            lsinternal.NewInFlight(),
 		driverOptions:       pdriOpts,
 		modifyVolumeManager: newModifyVolumeManager(),
-		k8sClient:           k8sClient,
+		k8sClient:           lsk8s.NewKubernetes(k8sClient),
 		recorder:            recorder,
 		broadcaster:         broadcaster,
 	}
 }
 
-func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolumeRequest) (*lcsi.CreateVolumeResponse, error) {
+func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVolumeRequest) (*lcsi.CreateVolumeResponse, error) {
 	var (
 		serr lserr.IError
 	)
@@ -188,6 +188,11 @@ func (s *controllerService) CreateVolume(_ lctx.Context, preq *lcsi.CreateVolume
 		WithVolumeSize(uint64(lsutil.RoundUpSize(volSizeBytes, 1024*1024*1024))).
 		WithVolumeTypeID(modifyOpts.VolumeType).
 		WithClusterID(s.getClusterID())
+
+	newPvc, _ := s.k8sClient.GetPersistentVolumeClaimByName(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag)
+	if newPvc != nil {
+		llog.InfoS("[INFO] - CreateVolume: Get the PVC info from the API server", "pvc", *newPvc)
+	}
 
 	resp, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
 	if sdkErr != nil {

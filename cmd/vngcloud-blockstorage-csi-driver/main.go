@@ -20,7 +20,7 @@ import (
 func main() {
 	fs := lflag.NewFlagSet("vngcloud-blockstorage-csi-driver", lflag.ExitOnError)
 	if err := llogApi.RegisterLogFormat(llogApi.JSONLogFormat, ljson.Factory{}, llogApi.LoggingBetaOptions); err != nil {
-		llog.ErrorS(err, "failed to register JSON log format")
+		llog.ErrorS(err, "[ERROR] - main: Failed to register JSON log format")
 	}
 
 	options := GetOptions(fs)
