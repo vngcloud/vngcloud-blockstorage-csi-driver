@@ -4,10 +4,10 @@ go 1.22.3
 
 require (
 	github.com/container-storage-interface/spec v1.9.0
-	github.com/cuongpiger/joat v1.0.10
+	github.com/cuongpiger/joat v1.0.12
 	github.com/spf13/pflag v1.0.5
 	github.com/vngcloud/vngcloud-csi-volume-modifier v1.0.2
-	github.com/vngcloud/vngcloud-go-sdk/v2 v2.1.22
+	github.com/vngcloud/vngcloud-go-sdk/v2 v2.2.23
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.51.0
 	go.opentelemetry.io/otel v1.26.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.26.0
@@ -35,7 +35,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/imroc/req/v3 v3.43.5 // indirect
+	github.com/imroc/req/v3 v3.43.7 // indirect
 	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/onsi/ginkgo/v2 v2.17.3 // indirect
 	github.com/onsi/gomega v1.33.1 // indirect
