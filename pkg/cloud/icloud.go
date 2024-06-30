@@ -14,6 +14,7 @@ type Cloud interface {
 	DeleteVolume(volID string) error
 	AttachVolume(instanceID, volumeID string) (*lsentity.Volume, error)
 	DetachVolume(instanceID, volumeID string) error
+	ModifyVolumeType(pvolumeId, pvolumeType string, psize int) lserr.IError
 	ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error)
 	ExpandVolume(volumeID, volumeTypeID string, newSize uint64) error
 	GetDeviceDiskID(pvolID string) (string, error)

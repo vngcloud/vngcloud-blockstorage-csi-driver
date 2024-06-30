@@ -580,12 +580,10 @@ func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmr
 	}
 
 	llog.InfoS("[INFO] - ModifyVolumeProperties: Modifying volume", "volumeID", volumeID, "newVolumeType", options.VolumeType, "oldVolumeType", volume.VolumeTypeID, "newSize", volume.Size)
-	_, err := s.cloud.ResizeOrModifyDisk(volumeID, lsutil.GiBToBytes(int64(volume.Size)), &lscloud.ModifyDiskOptions{
-		VolumeType: options.VolumeType,
-	})
-	if err != nil {
-		llog.ErrorS(err, "ModifyVolumeProperties: failed to modify volume", "volumeID", volumeID)
-		return nil, ErrFailedToModifyVolume(volumeID)
+	ierr := s.cloud.ModifyVolumeType(volumeID, options.VolumeType, int(volume.Size))
+	if ierr != nil {
+		llog.ErrorS(ierr.GetError(), "ModifyVolumeProperties: failed to modify volume", "volumeID", volumeID)
+		return nil, ierr.GetError()
 	}
 
 	return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
