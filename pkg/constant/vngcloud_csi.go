@@ -6,5 +6,5 @@ const (
 
 const (
 	EncryptedSuffixAnnotation = "encrypted"
-	VolumeTypeAnnotation      = "type"
+	VolumeTypeAnnotation      = "volume-type"
 )
