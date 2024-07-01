@@ -3,8 +3,10 @@ package k8s
 import (
 	lctx "context"
 
+	lcoreV1 "k8s.io/api/core/v1"
 	lmetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	lk8s "k8s.io/client-go/kubernetes"
+	lk8srecord "k8s.io/client-go/tools/record"
 
 	lsentity "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/entity"
 	lserr "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud/errors"
@@ -12,11 +14,13 @@ import (
 
 type kubernetes struct {
 	lk8s.Interface
+	lk8srecord.EventRecorder
 }
 
-func NewKubernetes(pk8sclient lk8s.Interface) IKubernetes {
+func NewKubernetes(pk8sclient lk8s.Interface, precorder lk8srecord.EventRecorder) IKubernetes {
 	return &kubernetes{
-		Interface: pk8sclient,
+		Interface:     pk8sclient,
+		EventRecorder: precorder,
 	}
 }
 
@@ -44,4 +48,28 @@ func (s *kubernetes) GetStorageClassByName(pctx lctx.Context, pname string) (*ls
 	}
 
 	return lsentity.NewStorageClass(sc), nil
+}
+
+func (s *kubernetes) PersistentVolumeClaimEventWarning(pctx lctx.Context, pnamespace, pname, preason, pmessage string) {
+	if pnamespace == "" || pname == "" {
+		return
+	}
+
+	pvc, err := s.GetPersistentVolumeClaimByName(pctx, pnamespace, pname)
+	if err != nil || pvc == nil {
+		return
+	}
+	s.EventRecorder.Event(pvc.PersistentVolumeClaim, lcoreV1.EventTypeWarning, preason, pmessage)
+}
+
+func (s *kubernetes) PersistentVolumeClaimEventNormal(pctx lctx.Context, pnamespace, pname, preason, pmessage string) {
+	if pnamespace == "" || pname == "" {
+		return
+	}
+
+	pvc, err := s.GetPersistentVolumeClaimByName(pctx, pnamespace, pname)
+	if err != nil || pvc == nil {
+		return
+	}
+	s.EventRecorder.Event(pvc.PersistentVolumeClaim, lcoreV1.EventTypeNormal, preason, pmessage)
 }

@@ -13,3 +13,7 @@ type ListSnapshots struct {
 func (s *ListSnapshots) Len() int {
 	return len(s.Items)
 }
+
+func (s *ListSnapshots) IsEmpty() bool {
+	return s.Len() < 1
+}
