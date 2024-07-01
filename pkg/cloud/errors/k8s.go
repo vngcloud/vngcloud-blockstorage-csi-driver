@@ -27,6 +27,25 @@ var (
 				"pvcName":   pname,
 			})
 	}
+
+	ErrK8sPvFailedToGet = func(pname string, perr error) IError {
+		return NewError(new(lsdkErr.SdkError).
+			WithErrorCode(EcK8sPvFailedToGet).
+			WithMessage(lfmt.Sprintf("Failed to get PV %s", pname))).
+			WithErrors(perr).
+			WithParameters(map[string]interface{}{
+				"pvcName": pname,
+			})
+	}
+
+	ErrK8sPvNotFound = func(pname string) IError {
+		return NewError(new(lsdkErr.SdkError).
+			WithErrorCode(EcK8sPvNotFound).
+			WithMessage(lfmt.Sprintf("PV %s not found", pname))).
+			WithParameters(map[string]interface{}{
+				"pvcName": pname,
+			})
+	}
 )
 
 // StorageClass error group

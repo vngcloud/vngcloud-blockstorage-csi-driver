@@ -237,8 +237,8 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	return newCreateVolumeResponse(newVol, cvr, respCtx), nil
 }
 
-func (s *controllerService) DeleteVolume(_ lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
-	llog.V(4).InfoS("[INFO] - DeleteVolume: called", "request", *preq)
+func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
+	llog.InfoS("[INFO] - DeleteVolume: called", "request", *preq)
 
 	if err := validateDeleteVolumeRequest(preq); err != nil {
 		llog.ErrorS(err, "[ERROR] - DeleteVolume: Invalid request", "request", *preq)

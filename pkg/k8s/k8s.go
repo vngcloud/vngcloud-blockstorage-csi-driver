@@ -50,6 +50,20 @@ func (s *kubernetes) GetStorageClassByName(pctx lctx.Context, pname string) (*ls
 	return lsentity.NewStorageClass(sc), nil
 }
 
+func (s *kubernetes) GetPersistentVolume(pctx lctx.Context, pname string) (*lsentity.PersistentVolume, lserr.IError) {
+	pv, err := s.CoreV1().PersistentVolumes().Get(pctx, pname, lmetav1.GetOptions{})
+	if err != nil {
+		return nil, lserr.ErrK8sPvFailedToGet(pname, err)
+	}
+
+	if pv == nil {
+		return nil, lserr.ErrK8sPvNotFound(pname)
+	}
+
+	return lsentity.NewPersistentVolume(pv), nil
+
+}
+
 func (s *kubernetes) PersistentVolumeClaimEventWarning(pctx lctx.Context, pnamespace, pname, preason, pmessage string) {
 	if pnamespace == "" || pname == "" {
 		return
@@ -72,4 +86,28 @@ func (s *kubernetes) PersistentVolumeClaimEventNormal(pctx lctx.Context, pnamesp
 		return
 	}
 	s.EventRecorder.Event(pvc.PersistentVolumeClaim, lcoreV1.EventTypeNormal, preason, pmessage)
+}
+
+func (s *kubernetes) PersistentVolumeEventWarning(pctx lctx.Context, pname, preason, pmessage string) {
+	if pname == "" {
+		return
+	}
+
+	pvc, err := s.GetPersistentVolume(pctx, pname)
+	if err != nil || pvc == nil {
+		return
+	}
+	s.EventRecorder.Event(pvc.PersistentVolume, lcoreV1.EventTypeWarning, preason, pmessage)
+}
+
+func (s *kubernetes) PersistentVolumeEventNormal(pctx lctx.Context, pname, preason, pmessage string) {
+	if pname == "" {
+		return
+	}
+
+	pvc, err := s.GetPersistentVolume(pctx, pname)
+	if err != nil || pvc == nil {
+		return
+	}
+	s.EventRecorder.Event(pvc.PersistentVolume, lcoreV1.EventTypeNormal, preason, pmessage)
 }
