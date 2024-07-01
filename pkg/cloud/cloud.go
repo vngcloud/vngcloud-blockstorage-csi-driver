@@ -192,38 +192,63 @@ func (s *cloud) AttachVolume(pinstanceId, pvolumeId string) (*lsentity.Volume, e
 
 }
 
-func (s *cloud) DetachVolume(pinstanceId, pvolumeId string) error {
-	if err := ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(10)), func() (bool, error) {
-		_, sdkErr := s.getVolumeById(pvolumeId)
+func (s *cloud) DetachVolume(pinstanceId, pvolumeId string) lserr.IError {
+	llog.InfoS("[INFO] - DetachVolume: Start detaching the volume", "volumeId", pvolumeId, "instanceId", pinstanceId)
+
+	var (
+		ierr lserr.IError
+	)
+
+	_ = ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(10)), func() (bool, error) {
+		vol, sdkErr := s.client.VServerGateway().V2().VolumeService().
+			GetBlockVolumeById(lsdkVolumeV2.NewGetBlockVolumeByIdRequest(pvolumeId))
 		if sdkErr != nil {
-			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
-				return true, nil
-			}
-			return false, sdkErr.GetError()
+			ierr = lserr.ErrVServerVolumeFailedToGet(pvolumeId, sdkErr)
+			llog.ErrorS(ierr.GetError(), "[ERROR] - DetachVolume: Failed to get the volume", ierr.GetListParameters()...)
+			return false, ierr.GetError()
 		}
 
-		opt := lsdkComputeV2.NewDetachBlockVolumeRequest(pinstanceId, pvolumeId)
-		sdkErr = s.client.VServerGateway().V2().ComputeService().DetachBlockVolume(opt)
-		if sdkErr != nil {
-			if errSetDetachIngore.ContainsOne(sdkErr.GetErrorCode()) {
-				return true, nil
-			}
-
-			if sdkErr.IsError(lsdkErrs.EcVServerVolumeInProcess) {
-				return false, nil
-			}
-
-			llog.ErrorS(sdkErr.GetError(), "[ERROR] - DetachVolume: Failed to detach the volume", sdkErr.GetListParameters()...)
-			return false, sdkErr.GetError()
+		// Ignore if the volume is AVAILABLE status => This volume is not attached to any instance
+		if vol.IsAvailable() {
+			ierr = nil // reset the ierr variable
+			llog.InfoS("[INFO] - DetachVolume: The volume is already detached", "volumeId", pvolumeId)
+			return true, nil
 		}
 
+		// Ignore if the volume is not attached to this instance
+		if !vol.AttachedTheInstance(pinstanceId) {
+			ierr = nil
+			llog.InfoS("[INFO] - DetachVolume: The volume is not attached to the instance", "volumeId", pvolumeId, "instanceId", pinstanceId)
+			return true, nil
+		}
+
+		// Return if the volume is in ERROR state => stop the process if the volume is in ERROR state
+		if vol.IsError() {
+			ierr = lserr.ErrVolumeIsInErrorState(pvolumeId)
+			llog.InfoS("[INFO] - DetachVolume: The volume is in error state", "volumeId", pvolumeId)
+			return false, ierr.GetError()
+		}
+
+		// Only detach the volume if it is in IN-USE state
+		if vol.IsInUse() {
+			llog.InfoS("[INFO] - DetachVolume: Detaching the volume", "volumeId", pvolumeId, "instanceId", pinstanceId)
+			if sdkErr = s.client.VServerGateway().V2().ComputeService().
+				DetachBlockVolume(lsdkComputeV2.NewDetachBlockVolumeRequest(pinstanceId, pvolumeId)); sdkErr != nil {
+				ierr = lserr.ErrVolumeFailedToDetach(pinstanceId, pvolumeId, sdkErr)
+				llog.ErrorS(ierr.GetError(), "[ERROR] - DetachVolume: Failed to detach the volume", ierr.GetListParameters()...)
+			}
+		}
+
+		// Return false to wait for the next iteration
 		return false, nil
-	}); err != nil {
-		return err
+	})
+
+	if ierr == nil {
+		llog.InfoS("[DEBUG] - DetachVolume: Detached the volume successfully", "volumeId", pvolumeId, "instanceId", pinstanceId)
+		return nil
 	}
 
-	llog.V(5).InfoS("[DEBUG] - DetachVolume: Detached the volume successfully", "volumeId", pvolumeId, "instanceId", pinstanceId)
-	return nil
+	return ierr
 }
 
 func (s *cloud) ResizeOrModifyDisk(volumeID string, newSizeBytes int64, options *ModifyDiskOptions) (newSize int64, err error) {

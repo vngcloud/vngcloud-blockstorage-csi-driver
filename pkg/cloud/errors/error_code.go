@@ -17,4 +17,6 @@ const (
 // VngCloud BlockStorage Volume
 const (
 	EcVServerVolumeIsInErrorState = lsdkErrs.ErrorCode("VServerVolumeIsInErrorState")
+	EcVServerVolumeFailedToDetach = lsdkErrs.ErrorCode("VServerVolumeFailedToDetach")
+	EcVServerVolumeFailedToGet    = lsdkErrs.ErrorCode("VServerVolumeFailedToGet")
 )
