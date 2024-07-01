@@ -138,30 +138,57 @@ func (s *cloud) GetVolume(volumeID string) (*lsentity.Volume, lserr.IError) {
 	}, nil
 }
 
-func (s *cloud) DeleteVolume(volID string) error {
-	vol, ierr := s.GetVolume(volID)
-	if ierr != nil && ierr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+func (s *cloud) DeleteVolume(volID string) lserr.IError {
+	llog.InfoS("[INFO] - DeleteVolume: Start deleting the volume", "volumeId", volID)
+
+	var (
+		ierr lserr.IError
+	)
+
+	_ = ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(10)), func() (bool, error) {
+		vol, sdkErr := s.client.VServerGateway().V2().VolumeService().
+			GetBlockVolumeById(lsdkVolumeV2.NewGetBlockVolumeByIdRequest(volID))
+
+		if sdkErr != nil {
+			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+				ierr = nil // reset
+				llog.InfoS("[INFO] - DeleteVolume: The volume was deleted before", "volumeId", volID)
+				return true, nil
+			}
+
+			ierr = lserr.ErrVServerVolumeFailedToGet(volID, sdkErr)
+			return false, nil
+		}
+
+		// Check can delete this volume
+		if vol.CanDelete() {
+			llog.InfoS("[INFO] - DeleteVolume: Deleting the volume", "volumeId", volID)
+			if sdkErr = s.client.VServerGateway().V2().VolumeService().
+				DeleteBlockVolumeById(lsdkVolumeV2.NewDeleteBlockVolumeByIdRequest(volID)); sdkErr != nil {
+				if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
+					ierr = nil // reset
+					llog.InfoS("[INFO] - DeleteVolume: The volume was deleted before", "volumeId", volID)
+					return true, nil
+				}
+
+				ierr = lserr.ErrVServerVolumeFailedToDelete(volID, sdkErr)
+				llog.ErrorS(ierr.GetError(), "[ERROR] - DeleteVolume: Failed to delete the volume", ierr.GetListParameters()...)
+				return false, nil
+			}
+
+			ierr = nil // reset
+			return true, nil
+		}
+
+		return false, nil
+	})
+
+	if ierr == nil {
+		llog.InfoS("[INFO] - DeleteVolume: Deleted the volume successfully", "volumeId", volID)
 		return nil
 	}
 
-	if vol.CanDelete() {
-		_, err := s.waitVolumeAchieveStatus(volID, availableDeleteStatus)
-		if err != nil {
-			return err
-		}
-
-		opt := lsdkVolumeV2.NewDeleteBlockVolumeByIdRequest(volID)
-		sdkErr := s.client.VServerGateway().V2().VolumeService().DeleteBlockVolumeById(opt)
-		if sdkErr != nil {
-			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
-				return nil
-			}
-
-			return sdkErr.GetError()
-		}
-	}
-
-	return nil
+	return ierr
 }
 
 func (s *cloud) AttachVolume(pinstanceId, pvolumeId string) (*lsentity.Volume, error) {

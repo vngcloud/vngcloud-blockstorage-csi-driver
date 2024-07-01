@@ -11,7 +11,7 @@ type Cloud interface {
 	EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeRequest) (*lsentity.Volume, lserr.IError)
 	GetVolumeByName(pvolName string) (*lsentity.Volume, lserr.IError)
 	GetVolume(volumeID string) (*lsentity.Volume, lserr.IError)
-	DeleteVolume(volID string) error
+	DeleteVolume(volID string) lserr.IError
 	AttachVolume(instanceID, volumeID string) (*lsentity.Volume, error)
 	DetachVolume(instanceID, volumeID string) lserr.IError
 	ModifyVolumeType(pvolumeId, pvolumeType string, psize int) lserr.IError

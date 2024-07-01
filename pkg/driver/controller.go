@@ -248,7 +248,7 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 
 	if err := s.cloud.DeleteVolume(volumeID); err != nil {
 		if err != nil {
-			llog.ErrorS(err, "[ERROR] - DeleteVolume: failed to delete volume", "volumeID", volumeID)
+			llog.ErrorS(err.GetError(), "[ERROR] - DeleteVolume: failed to delete volume", "volumeID", volumeID)
 			return nil, ErrFailedToDeleteVolume(volumeID)
 		}
 	}

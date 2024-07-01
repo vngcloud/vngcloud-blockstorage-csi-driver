@@ -31,4 +31,13 @@ var (
 			WithKVparameters("volumeId", pvolId).
 			WithParameters(psdkErr.GetParameters()))
 	}
+
+	ErrVServerVolumeFailedToDelete = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
+		return NewError(new(lsdkErr.SdkError).
+			WithErrorCode(EcVServerVolumeFailedToDelete).
+			WithErrors(psdkErr.GetError()).
+			WithMessage(lfmt.Sprintf("Failed to delete volume %s", pvolId)).
+			WithKVparameters("volumeId", pvolId).
+			WithParameters(psdkErr.GetParameters()))
+	}
 )

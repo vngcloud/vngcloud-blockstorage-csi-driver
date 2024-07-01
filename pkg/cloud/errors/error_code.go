@@ -19,4 +19,5 @@ const (
 	EcVServerVolumeIsInErrorState = lsdkErrs.ErrorCode("VServerVolumeIsInErrorState")
 	EcVServerVolumeFailedToDetach = lsdkErrs.ErrorCode("VServerVolumeFailedToDetach")
 	EcVServerVolumeFailedToGet    = lsdkErrs.ErrorCode("VServerVolumeFailedToGet")
+	EcVServerVolumeFailedToDelete = lsdkErrs.ErrorCode("VServerVolumeFailedToDelete")
 )
