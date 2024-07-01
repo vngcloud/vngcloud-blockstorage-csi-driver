@@ -471,7 +471,7 @@ func (s *controllerService) ControllerGetCapabilities(ctx lctx.Context, req *lcs
 }
 
 func (s *controllerService) ControllerExpandVolume(_ lctx.Context, preq *lcsi.ControllerExpandVolumeRequest) (*lcsi.ControllerExpandVolumeResponse, error) {
-	llog.V(4).InfoS("ControllerExpandVolume: called", "preq", *preq)
+	llog.V(4).InfoS("[INFO] - ControllerExpandVolume: Called", "request", *preq)
 
 	volumeID := preq.GetVolumeId()
 	if volumeID == "" {
@@ -480,9 +480,13 @@ func (s *controllerService) ControllerExpandVolume(_ lctx.Context, preq *lcsi.Co
 
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volumeID); !ok {
+		llog.InfoS("[INFO] - ControllerExpandVolume: Operation is already in-flight", "volumeID", volumeID)
 		return nil, ErrOperationAlreadyExists(volumeID)
 	}
-	defer s.inFlight.Delete(volumeID)
+	defer func() {
+		llog.InfoS("[INFO] - ControllerExpandVolume: Operation completed", "volumeID", volumeID)
+		s.inFlight.Delete(volumeID)
+	}()
 
 	capRange := preq.GetCapacityRange()
 	if capRange == nil {
