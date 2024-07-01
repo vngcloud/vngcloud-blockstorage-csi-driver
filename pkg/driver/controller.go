@@ -304,9 +304,14 @@ func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi
 	nodeID := preq.GetNodeId()
 
 	if !s.inFlight.Insert(volumeID + nodeID) {
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: Operation is already in-flight", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, ErrOperationAlreadyExists(volumeID)
 	}
-	defer s.inFlight.Delete(volumeID + nodeID)
+
+	defer func() {
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: Operation completed", "volumeID", volumeID, "nodeID", nodeID)
+		s.inFlight.Delete(volumeID + nodeID)
+	}()
 
 	if volumeID == "" {
 		llog.Errorf("[ERROR] - ControllerUnpublishVolume: VolumeID is required")
