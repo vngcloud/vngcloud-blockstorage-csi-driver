@@ -307,9 +307,9 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 	llog.InfoS("[INFO] - ControllerPublishVolume: attaching volume into the instance", "volumeID", volumeID, "nodeID", nodeID)
 
 	// Attach the volume and wait for it to be attached
-	_, err = s.cloud.AttachVolume(nodeID, volumeID)
-	if err != nil {
-		llog.ErrorS(err, "[ERROR] - ControllerPublishVolume; failed to attach volume to instance", "volumeID", volumeID, "nodeID", nodeID)
+	_, ierr := s.cloud.AttachVolume(nodeID, volumeID)
+	if ierr != nil {
+		llog.ErrorS(ierr.GetError(), "[ERROR] - ControllerPublishVolume; failed to attach volume to instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, ErrAttachVolume(volumeID, nodeID)
 	}
 
