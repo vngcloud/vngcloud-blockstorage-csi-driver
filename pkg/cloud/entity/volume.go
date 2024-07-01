@@ -23,7 +23,7 @@ func (s *Volume) IsCreating() bool {
 }
 
 func (s *Volume) AttachedTheInstance(pinstanceId string) bool {
-	if s.VmId != nil && *s.VmId == pinstanceId {
+	if s.VmId == pinstanceId {
 		return true
 	}
 
@@ -41,11 +41,7 @@ func (s *Volume) CanDelete() bool {
 		return true
 	}
 
-	if s.VmId == nil {
-		return true
-	}
-
-	if *s.VmId == "" {
+	if s.VmId == "" {
 		return true
 	}
 
@@ -61,7 +57,7 @@ func (s *Volume) IsAttched() bool {
 		return true
 	}
 
-	if s.VmId != nil && *s.VmId != "" {
+	if s.VmId != "" {
 		return true
 	}
 

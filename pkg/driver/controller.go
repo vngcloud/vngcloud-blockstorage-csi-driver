@@ -293,49 +293,34 @@ func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcs
 }
 
 func (s *controllerService) ControllerUnpublishVolume(_ lctx.Context, preq *lcsi.ControllerUnpublishVolumeRequest) (*lcsi.ControllerUnpublishVolumeResponse, error) {
-	llog.V(4).InfoS("[INFO] - ControllerUnpublishVolume: Called", "preq", *preq)
+	llog.InfoS("[INFO] - ControllerUnpublishVolume: Called", "request", *preq)
 
 	if err := validateControllerUnpublishVolumeRequest(preq); err != nil {
-		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: Invalid request")
+		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: Invalid request", "request", *preq)
 		return nil, err
 	}
 
 	volumeID := preq.GetVolumeId()
 	nodeID := preq.GetNodeId()
+	key := volumeID + nodeID
 
-	if !s.inFlight.Insert(volumeID + nodeID) {
-		llog.InfoS("[INFO] - ControllerUnpublishVolume: Operation is already in-flight", "volumeID", volumeID, "nodeID", nodeID)
+	if !s.inFlight.Insert(key) {
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: Operation is already in-flight", "volumeID", volumeID, "nodeID", nodeID, "inflightKey", key)
 		return nil, ErrOperationAlreadyExists(volumeID)
 	}
 
+	llog.V(5).InfoS("[INFO] - ControllerUnpublishVolume: Insert this action to inflight cach3", "volumeID", volumeID, "nodeID", nodeID, "inflightKey", key)
 	defer func() {
-		llog.InfoS("[INFO] - ControllerUnpublishVolume: Operation completed", "volumeID", volumeID, "nodeID", nodeID)
+		llog.InfoS("[INFO] - ControllerUnpublishVolume: Operation completed", "volumeID", volumeID, "nodeID", nodeID, "inflightKey", key)
 		s.inFlight.Delete(volumeID + nodeID)
 	}()
 
-	if volumeID == "" {
-		llog.Errorf("[ERROR] - ControllerUnpublishVolume: VolumeID is required")
-		return nil, ErrVolumeIDNotProvided
-	}
-
-	vol, getErr := s.cloud.GetVolume(volumeID)
-	if getErr != nil && getErr.IsError(lsdkErrs.EcVServerVolumeNotFound) {
-		llog.InfoS("[INFO] - ControllerUnpublishVolume: Volume not found", "volumeID", volumeID)
-		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
-	}
-
-	if !vol.AttachedTheInstance(nodeID) {
-		llog.InfoS("[INFO] - ControllerUnpublishVolume: Server does not attach this volume", "volumeID", volumeID, "serverId", nodeID)
-		return &lcsi.ControllerUnpublishVolumeResponse{}, nil
-	}
-
-	err := s.cloud.DetachVolume(nodeID, volumeID)
-	if err != nil {
-		llog.ErrorS(err, "[ERROR] - ControllerUnpublishVolume: Failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
+	if ierr := s.cloud.DetachVolume(nodeID, volumeID); ierr != nil {
+		llog.ErrorS(ierr.GetError(), "[ERROR] - ControllerUnpublishVolume: Failed to detach volume from instance", "volumeID", volumeID, "nodeID", nodeID)
 		return nil, ErrDetachVolume(volumeID, nodeID)
 	}
 
-	llog.V(4).InfoS("[INFO] - ControllerUnpublishVolume: volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
+	llog.InfoS("[INFO] - ControllerUnpublishVolume: Volume detached from instance successfully", "volumeID", volumeID, "nodeID", nodeID)
 	return &lcsi.ControllerUnpublishVolumeResponse{}, nil
 }
 

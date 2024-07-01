@@ -76,7 +76,7 @@ func (s *cloud) waitDiskAttached(instanceID string, volumeID string) error {
 			return true, lfmt.Errorf("volume %q is in error state", volumeID)
 		}
 
-		if vol.VmId != nil && *vol.VmId == instanceID && vol.Status == VolumeInUseStatus {
+		if vol.VmId == instanceID && vol.Status == VolumeInUseStatus {
 			return true, nil
 		}
 
