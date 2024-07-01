@@ -169,10 +169,16 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	volumeSource := preq.GetVolumeContentSource()
 	if volumeSource != nil {
 		if _, ok := volumeSource.GetType().(*lcsi.VolumeContentSource_Snapshot); !ok {
+			llog.ErrorS(nil, "[ERROR] - CreateVolume: VolumeContentSource not supported", "volumeID", volName)
+			s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+				"CsiVolumeContentSourceNotSupported", "VolumeContentSource_Snapshot not supported")
 			return nil, ErrVolumeContentSourceNotSupported
 		}
 		sourceSnapshot := volumeSource.GetSnapshot()
 		if sourceSnapshot == nil {
+			llog.ErrorS(nil, "[ERROR] - CreateVolume: Snapshot is nil within volumeContentSource", "volumeID", volName)
+			s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+				"CsiSnapshotNotFound", "Snapshot is nil within volumeContentSource")
 			return nil, ErrSnapshotIsNil
 		}
 		cvr = cvr.WithSnapshotID(sourceSnapshot.GetSnapshotId())
@@ -181,6 +187,8 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	respCtx, err := cvr.ToResponseContext(volCap)
 	if err != nil {
 		llog.ErrorS(err, "[ERROR] - CreateVolume: Failed to parse response context", "volumeID", volName)
+		s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+			"CsiCreateVolumeRequestInvalid", err.Error())
 		return nil, err
 	}
 
@@ -194,6 +202,8 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	pvc, ierr := s.k8sClient.GetPersistentVolumeClaimByName(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag)
 	if ierr != nil {
 		llog.ErrorS(ierr.GetError(), "[ERROR] - CreateVolume: Failed to get PVC", "pvcName", cvr.PvcNameTag, "pvcNamespace", cvr.PvcNamespaceTag)
+		s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+			"CsiGetPersistentVolumeClaimFailure", ierr.GetMessage())
 		return nil, ierr.GetError()
 	}
 
@@ -201,6 +211,8 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	sc, ierr := s.k8sClient.GetStorageClassByName(pctx, pvc.GetStorageClassName())
 	if ierr != nil {
 		llog.ErrorS(ierr.GetError(), "[ERROR] - CreateVolume: Failed to get StorageClass", "storageClassName", pvc.GetStorageClassName())
+		s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+			"CsiGetStorageClassFailure", ierr.GetMessage())
 		return nil, ierr.GetError()
 	}
 
@@ -215,11 +227,13 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	newVol, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
 	if sdkErr != nil {
 		llog.ErrorS(sdkErr.GetError(), "[ERROR] - CreateVolume: failed to create volume", sdkErr.GetErrorMessages())
+		s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+			"CsiCreateVolumeFailure", sdkErr.GetMessage())
 		return nil, sdkErr.GetError()
 	}
 
 	s.k8sClient.PersistentVolumeClaimEventNormal(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
-		"CsiCreateVolumeSuccess", lfmt.Sprintf("Volume created successfully with ID %s for PVC %s", newVol.Id, newVol.Name))
+		"CsiCreateVolumeSuccess", lfmt.Sprintf("Volume created successfully with ID %s for PersistentVolume %s", newVol.Id, newVol.Name))
 	return newCreateVolumeResponse(newVol, cvr, respCtx), nil
 }
 
