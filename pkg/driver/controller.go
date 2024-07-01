@@ -3,6 +3,7 @@ package driver
 import (
 	lctx "context"
 	lerr "errors"
+	lfmt "fmt"
 	lstrconv "strconv"
 	lstr "strings"
 	ltime "time"
@@ -211,13 +212,15 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		cvr = cvr.WithEncrypted(pvc.GetCsiEncryptedAnnotation())
 	}
 
-	resp, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
+	newVol, sdkErr := s.cloud.EitherCreateResizeVolume(cvr.ToSdkCreateVolumeRequest())
 	if sdkErr != nil {
 		llog.ErrorS(sdkErr.GetError(), "[ERROR] - CreateVolume: failed to create volume", sdkErr.GetErrorMessages())
 		return nil, sdkErr.GetError()
 	}
 
-	return newCreateVolumeResponse(resp, cvr, respCtx), nil
+	s.k8sClient.PersistentVolumeClaimEventNormal(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
+		"CsiCreateVolumeSuccess", lfmt.Sprintf("Volume created successfully with ID %s for PVC %s", newVol.Id, newVol.Name))
+	return newCreateVolumeResponse(newVol, cvr, respCtx), nil
 }
 
 func (s *controllerService) DeleteVolume(_ lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
