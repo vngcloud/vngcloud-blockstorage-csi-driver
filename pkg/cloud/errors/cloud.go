@@ -23,7 +23,7 @@ var (
 			WithParameters(psdkErr.GetParameters()))
 	}
 
-	ErrVServerVolumeFailedToGet = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
+	ErrVolumeFailedToGet = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
 		return NewError(new(lsdkErr.SdkError).
 			WithErrorCode(EcVServerVolumeFailedToGet).
 			WithErrors(psdkErr.GetError()).
@@ -32,12 +32,28 @@ var (
 			WithParameters(psdkErr.GetParameters()))
 	}
 
-	ErrVServerVolumeFailedToDelete = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
+	ErrVolumeFailedToDelete = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
 		return NewError(new(lsdkErr.SdkError).
 			WithErrorCode(EcVServerVolumeFailedToDelete).
 			WithErrors(psdkErr.GetError()).
 			WithMessage(lfmt.Sprintf("Failed to delete volume %s", pvolId)).
 			WithKVparameters("volumeId", pvolId).
+			WithParameters(psdkErr.GetParameters()))
+	}
+
+	ErrVolumeNotFound = func(pvolId string) IError {
+		return NewError(new(lsdkErr.SdkError).
+			WithErrorCode(EcVServerVolumeNotFound).
+			WithMessage(lfmt.Sprintf("Volume %s not found", pvolId)).
+			WithKVparameters("volumeId", pvolId))
+	}
+
+	ErrVolumeFailedToAttach = func(pinstanceId, pvolId string, psdkErr lsdkErr.ISdkError) IError {
+		return NewError(new(lsdkErr.SdkError).
+			WithErrorCode(EcVServerVolumeFailedToAttach).
+			WithErrors(psdkErr.GetError()).
+			WithMessage(lfmt.Sprintf("Failed to attach volume %s to instance %s", pvolId, pinstanceId)).
+			WithKVparameters("instanceId", pinstanceId, "volumeId", pvolId).
 			WithParameters(psdkErr.GetParameters()))
 	}
 )

@@ -23,4 +23,6 @@ const (
 	EcVServerVolumeFailedToDetach = lsdkErrs.ErrorCode("VServerVolumeFailedToDetach")
 	EcVServerVolumeFailedToGet    = lsdkErrs.ErrorCode("VServerVolumeFailedToGet")
 	EcVServerVolumeFailedToDelete = lsdkErrs.ErrorCode("VServerVolumeFailedToDelete")
+	EcVServerVolumeNotFound       = lsdkErrs.ErrorCode("VServerVolumeNotFound")
+	EcVServerVolumeFailedToAttach = lsdkErrs.ErrorCode("VServerVolumeFailedToAttach")
 )

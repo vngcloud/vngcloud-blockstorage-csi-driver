@@ -281,23 +281,30 @@ func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVol
 }
 
 func (s *controllerService) ControllerPublishVolume(pctx lctx.Context, preq *lcsi.ControllerPublishVolumeRequest) (result *lcsi.ControllerPublishVolumeResponse, err error) {
-	llog.V(5).InfoS("[INFO] - ControllerPublishVolume: called with request", "preq", *preq)
+	llog.V(5).InfoS("[INFO] - ControllerPublishVolume: Called", "request", *preq)
 
 	if err = validateControllerPublishVolumeRequest(preq); err != nil {
-		llog.ErrorS(err, "[ERROR] - ControllerPublishVolume: invalid request")
+		llog.ErrorS(err, "[ERROR] - ControllerPublishVolume: Invalid request")
 		return nil, err
 	}
 
 	volumeID := preq.GetVolumeId() // get the cloud volume ID
 	nodeID := preq.GetNodeId()     // get the cloud node ID
+	key := volumeID + nodeID
 
 	// Make sure there are no 2 operations on the same volume and node at the same time
 	if !s.inFlight.Insert(volumeID + nodeID) {
+		llog.InfoS("[INFO] - ControllerPublishVolume: Operation is already in-flight", "volumeID", volumeID, "nodeID", nodeID, "inflightKey", key)
 		return nil, ErrOperationAlreadyExists(volumeID)
 	}
-	defer s.inFlight.Delete(volumeID + nodeID)
 
-	llog.V(2).InfoS("[INFO] - ControllerPublishVolume: attaching volume into the instance", "volumeID", volumeID, "nodeID", nodeID)
+	llog.V(5).InfoS("[INFO] - ControllerPublishVolume: Insert this action to inflight cache", "volumeID", volumeID, "nodeID", nodeID, "inflightKey", key)
+	defer func() {
+		llog.InfoS("[INFO] - ControllerPublishVolume: Operation completed", "volumeID", volumeID, "nodeID", nodeID, "inflightKey", key)
+		s.inFlight.Delete(volumeID + nodeID)
+	}()
+
+	llog.InfoS("[INFO] - ControllerPublishVolume: attaching volume into the instance", "volumeID", volumeID, "nodeID", nodeID)
 
 	// Attach the volume and wait for it to be attached
 	_, err = s.cloud.AttachVolume(nodeID, volumeID)

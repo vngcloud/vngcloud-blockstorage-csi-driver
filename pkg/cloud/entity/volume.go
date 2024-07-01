@@ -6,6 +6,12 @@ const (
 	VolumeInUseStatus = "IN-USE"
 )
 
+func NewVolume(pvol *lsdkEntity.Volume) *Volume {
+	return &Volume{
+		Volume: pvol,
+	}
+}
+
 type Volume struct {
 	*lsdkEntity.Volume
 }

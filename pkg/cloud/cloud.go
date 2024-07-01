@@ -156,7 +156,7 @@ func (s *cloud) DeleteVolume(volID string) lserr.IError {
 				return true, nil
 			}
 
-			ierr = lserr.ErrVServerVolumeFailedToGet(volID, sdkErr)
+			ierr = lserr.ErrVolumeFailedToGet(volID, sdkErr)
 			return false, nil
 		}
 
@@ -171,7 +171,7 @@ func (s *cloud) DeleteVolume(volID string) lserr.IError {
 					return true, nil
 				}
 
-				ierr = lserr.ErrVServerVolumeFailedToDelete(volID, sdkErr)
+				ierr = lserr.ErrVolumeFailedToDelete(volID, sdkErr)
 				llog.ErrorS(ierr.GetError(), "[ERROR] - DeleteVolume: Failed to delete the volume", ierr.GetListParameters()...)
 				return false, nil
 			}
@@ -191,32 +191,103 @@ func (s *cloud) DeleteVolume(volID string) lserr.IError {
 	return ierr
 }
 
-func (s *cloud) AttachVolume(pinstanceId, pvolumeId string) (*lsentity.Volume, error) {
+func (s *cloud) AttachVolume(pinstanceId, pvolumeId string) (*lsentity.Volume, lserr.IError) {
 	var (
 		svol *lsentity.Volume
-		err  error
+		ierr lserr.IError
 	)
 
-	svol, err = s.waitVolumeAchieveStatus(pvolumeId, volumeArchivedStatus)
-	if err != nil {
-		return nil, err
-	}
+	_ = ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(10)), func() (bool, error) {
+		vol, sdkErr := s.client.VServerGateway().V2().VolumeService().
+			GetBlockVolumeById(lsdkVolumeV2.NewGetBlockVolumeByIdRequest(pvolumeId))
+		if sdkErr != nil {
+			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) || vol == nil {
+				ierr = lserr.ErrVolumeNotFound(pvolumeId)
+				llog.ErrorS(ierr.GetError(), "[ERROR] - AttachVolume: Volume not found", ierr.GetListParameters()...)
+				return false, ierr.GetError()
+			}
 
-	if svol.AttachedTheInstance(pinstanceId) {
-		return svol, nil
-	}
-
-	opt := lsdkComputeV2.NewAttachBlockVolumeRequest(pinstanceId, pvolumeId)
-	sdkErr := s.client.VServerGateway().V2().ComputeService().AttachBlockVolume(opt)
-	if sdkErr != nil {
-		if !sdkErr.IsError(lsdkErrs.EcVServerVolumeAlreadyAttachedThisServer) {
-			return nil, sdkErr.GetError()
+			return false, nil
 		}
+
+		// Volume is in error state
+		if vol.IsError() {
+			ierr = lserr.ErrVolumeIsInErrorState(pvolumeId)
+			llog.ErrorS(ierr.GetError(), "[ERROR] - AttachVolume: The volume is in error state", ierr.GetListParameters()...)
+			return false, ierr.GetError()
+		}
+
+		if vol.AttachedTheInstance(pinstanceId) {
+			ierr = nil // reset
+			llog.InfoS("[INFO] - AttachVolume: The volume is already attached", "volumeId", pvolumeId, "instanceId", pinstanceId)
+			return true, nil
+		}
+
+		if vol.MultiAttach || vol.IsAvailable() {
+			sdkErr = s.client.VServerGateway().V2().ComputeService().
+				AttachBlockVolume(lsdkComputeV2.NewAttachBlockVolumeRequest(pinstanceId, pvolumeId))
+			if sdkErr != nil {
+				switch sdkErr.GetErrorCode() {
+				case lsdkErrs.EcVServerVolumeAlreadyAttachedThisServer:
+					ierr = nil // reset
+					llog.InfoS("[INFO] - AttachVolume: The volume is already attached", "volumeId", pvolumeId, "instanceId", pinstanceId)
+					return true, nil
+				case lsdkErrs.EcVServerVolumeInProcess:
+					llog.InfoS("[INFO] - AttachVolume: The volume is in process", "volumeId", pvolumeId, "instanceId", pinstanceId)
+					return false, nil
+				default:
+					ierr = lserr.ErrVolumeFailedToAttach(pinstanceId, pvolumeId, sdkErr)
+					llog.ErrorS(ierr.GetError(), "[ERROR] - AttachVolume: Failed to attach the volume", ierr.GetListParameters()...)
+					return false, ierr.GetError()
+				}
+			}
+
+			ierr = nil // reset
+			llog.InfoS("[INFO] - AttachVolume: Attached the volume successfully", "volumeId", pvolumeId, "instanceId", pinstanceId)
+			return true, nil
+		}
+
+		return false, nil
+	})
+
+	if ierr != nil {
+		return nil, ierr
 	}
 
-	err = s.waitDiskAttached(pinstanceId, pvolumeId)
-	return svol, err
+	_ = ljwait.ExponentialBackoff(ljwait.NewBackOff(5, 10, true, ljtime.Minute(10)), func() (bool, error) {
+		vol, sdkErr := s.client.VServerGateway().V2().VolumeService().
+			GetBlockVolumeById(lsdkVolumeV2.NewGetBlockVolumeByIdRequest(pvolumeId))
+		if sdkErr != nil {
+			if sdkErr.IsError(lsdkErrs.EcVServerVolumeNotFound) || vol == nil {
+				ierr = lserr.ErrVolumeNotFound(pvolumeId)
+				llog.ErrorS(ierr.GetError(), "[ERROR] - AttachVolume: Volume not found", ierr.GetListParameters()...)
+				return false, ierr.GetError()
+			}
 
+			llog.ErrorS(ierr.GetError(), "[ERROR] - AttachVolume: Failed to get the volume when waiting it become archieve status", ierr.GetListParameters()...)
+			return false, nil
+		}
+
+		if vol.IsError() {
+			ierr = lserr.ErrVolumeIsInErrorState(pvolumeId)
+			llog.ErrorS(ierr.GetError(), "[ERROR] - AttachVolume: The volume is in error state", ierr.GetListParameters()...)
+			return false, ierr.GetError()
+		}
+
+		if vol.AttachedTheInstance(pinstanceId) {
+			ierr = nil // reset
+			svol = lsentity.NewVolume(vol)
+			return true, nil
+		}
+
+		return false, nil
+	})
+
+	if ierr != nil {
+		return nil, ierr
+	}
+
+	return svol, nil
 }
 
 func (s *cloud) DetachVolume(pinstanceId, pvolumeId string) lserr.IError {
@@ -230,7 +301,7 @@ func (s *cloud) DetachVolume(pinstanceId, pvolumeId string) lserr.IError {
 		vol, sdkErr := s.client.VServerGateway().V2().VolumeService().
 			GetBlockVolumeById(lsdkVolumeV2.NewGetBlockVolumeByIdRequest(pvolumeId))
 		if sdkErr != nil {
-			ierr = lserr.ErrVServerVolumeFailedToGet(pvolumeId, sdkErr)
+			ierr = lserr.ErrVolumeFailedToGet(pvolumeId, sdkErr)
 			llog.ErrorS(ierr.GetError(), "[ERROR] - DetachVolume: Failed to get the volume", ierr.GetListParameters()...)
 			return false, ierr.GetError()
 		}
