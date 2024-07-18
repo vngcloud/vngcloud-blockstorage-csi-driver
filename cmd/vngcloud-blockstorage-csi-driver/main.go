@@ -58,6 +58,7 @@ func main() {
 		lsdriver.WithClusterID(options.ServerOptions.ClusterID),
 		lsdriver.WithTagKeyLength(options.ServerOptions.TagKeyLength),
 		lsdriver.WithTagValueLength(options.ServerOptions.TagValueLength),
+		lsdriver.WithMaxVolumesPerNode(options.NodeOptions.MaxVolumesPerNode),
 	)
 
 	if err != nil {
@@ -122,9 +123,12 @@ func (s *ControllerOptions) AddFlags(fs *lflag.FlagSet) {
 
 }
 
-type NodeOptions struct{}
+type NodeOptions struct {
+	MaxVolumesPerNode int
+}
 
 func (s *NodeOptions) AddFlags(fs *lflag.FlagSet) {
+	fs.IntVar(&s.MaxVolumesPerNode, "max-volumes-per-node", 0, "The maximum number of volumes that can be attached to each node. Default is 0.")
 }
 
 func (s *NodeOptions) Validate() error {

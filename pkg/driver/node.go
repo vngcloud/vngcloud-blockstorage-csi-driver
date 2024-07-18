@@ -507,46 +507,56 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 	klog.V(5).InfoS("[DEBUG] - NodeGetInfo: START to get the node info")
 	nodeUUID := s.metadata.GetInstanceID()
 	zone := s.metadata.GetAvailabilityZone()
-	projectID := s.metadata.GetProjectID()
+	mvpn := 0
 
-	klog.InfoS("[INFO] - NodeGetInfo: the necessary information is retrieved successfully", "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
-	if len(projectID) < 1 {
-		klog.ErrorS(nil, "[ERROR] - NodeGetInfo; projectID is empty")
-		return nil, fmt.Errorf("projectID is empty")
+	if s.driverOptions.maxVolumesPerNode < 1 {
+		projectID := s.metadata.GetProjectID()
+
+		klog.InfoS("[INFO] - NodeGetInfo: the necessary information is retrieved successfully", "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
+		if len(projectID) < 1 {
+			klog.ErrorS(nil, "[ERROR] - NodeGetInfo; projectID is empty")
+			return nil, fmt.Errorf("projectID is empty")
+		}
+
+		clientCfg := lsdkClientV2.NewSdkConfigure().
+			WithClientId(s.driverOptions.clientID).
+			WithClientSecret(s.driverOptions.clientSecret).
+			WithIamEndpoint(s.driverOptions.identityURL).
+			WithVServerEndpoint(s.driverOptions.vServerURL)
+
+		cloudClient := lsdkClientV2.NewClient(lctx.TODO()).Configure(clientCfg)
+
+		klog.V(5).InfoS("[DEBUG] - NodeGetInfo: Get the portal info and quota")
+		portal, sdkErr := cloudClient.VServerGateway().V1().PortalService().
+			GetPortalInfo(lsdkPortalSvcV1.NewGetPortalInfoRequest(projectID))
+		if sdkErr != nil {
+			klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get portal info")
+			return nil, sdkErr.GetError()
+		}
+
+		klog.InfoS("[INFO] - NodeGetInfo: Received the portal info successfully", "portal", portal)
+		cloudClient = cloudClient.WithProjectId(portal.ProjectID)
+
+		quota, sdkErr := cloudClient.VServerGateway().V2().PortalService().
+			GetQuotaByName(lsdkPortalSvcV2.NewGetQuotaByNameRequest(lsdkPortalSvcV2.QtVolumeAttachLimit))
+
+		if sdkErr != nil {
+			klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get quota")
+			return nil, sdkErr.GetError()
+		}
+		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
+			"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
+
+		mvpn = quota.Limit
+	} else {
+		mvpn = s.driverOptions.maxVolumesPerNode
+		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
+			"maxVolumesPerNode", mvpn, "nodeId", nodeUUID, "zone", zone)
 	}
 
-	clientCfg := lsdkClientV2.NewSdkConfigure().
-		WithClientId(s.driverOptions.clientID).
-		WithClientSecret(s.driverOptions.clientSecret).
-		WithIamEndpoint(s.driverOptions.identityURL).
-		WithVServerEndpoint(s.driverOptions.vServerURL)
-
-	cloudClient := lsdkClientV2.NewClient(lctx.TODO()).Configure(clientCfg)
-
-	klog.V(5).InfoS("[DEBUG] - NodeGetInfo: Get the portal info and quota")
-	portal, sdkErr := cloudClient.VServerGateway().V1().PortalService().
-		GetPortalInfo(lsdkPortalSvcV1.NewGetPortalInfoRequest(projectID))
-	if sdkErr != nil {
-		klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get portal info")
-		return nil, sdkErr.GetError()
-	}
-
-	klog.InfoS("[INFO] - NodeGetInfo: Received the portal info successfully", "portal", portal)
-	cloudClient = cloudClient.WithProjectId(portal.ProjectID)
-
-	quota, sdkErr := cloudClient.VServerGateway().V2().PortalService().
-		GetQuotaByName(lsdkPortalSvcV2.NewGetQuotaByNameRequest(lsdkPortalSvcV2.QtVolumeAttachLimit))
-
-	if sdkErr != nil {
-		klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get quota")
-		return nil, sdkErr.GetError()
-	}
-
-	klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
-		"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	return &lcsi.NodeGetInfoResponse{
 		NodeId:            nodeUUID,
-		MaxVolumesPerNode: int64(quota.Limit),
+		MaxVolumesPerNode: int64(mvpn),
 		AccessibleTopology: &lcsi.Topology{
 			Segments: map[string]string{
 				ZoneTopologyKey: zone,

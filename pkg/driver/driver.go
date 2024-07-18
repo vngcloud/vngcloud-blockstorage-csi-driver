@@ -51,6 +51,7 @@ type DriverOptions struct { // nolint: maligned
 	alertChannelSize                  int
 	tagKeyLength                      int
 	tagValueLength                    int
+	maxVolumesPerNode                 int // The maximum number of volumes CAN be attached to each node
 }
 
 func NewDriver(options ...func(*DriverOptions)) (*Driver, error) {
@@ -167,6 +168,12 @@ func WithTagKeyLength(ptkl int) func(*DriverOptions) {
 func WithTagValueLength(ptvl int) func(*DriverOptions) {
 	return func(o *DriverOptions) {
 		o.tagValueLength = ptvl
+	}
+}
+
+func WithMaxVolumesPerNode(pmvpn int) func(*DriverOptions) {
+	return func(o *DriverOptions) {
+		o.maxVolumesPerNode = pmvpn
 	}
 }
 
