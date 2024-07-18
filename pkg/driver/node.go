@@ -544,10 +544,10 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 			klog.ErrorS(sdkErr.GetError(), "[ERROR] - NodeGetInfo; failed to get quota")
 			return nil, sdkErr.GetError()
 		}
-		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
-			"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 
 		mvpn = quota.Limit
+		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
+			"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	} else {
 		mvpn = s.driverOptions.maxVolumesPerNode
 		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
