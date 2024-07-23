@@ -210,7 +210,7 @@ func GetOptions(fs *lflag.FlagSet) *Options {
 		llog.SetOutput(los.Stderr)
 	}
 
-	config, err := getConfigFromEnv()
+	config, err := getConfigFromEnv(nodeOptions, cmd)
 	if err != nil {
 		llog.Errorf("Failed to get config from files: %v", err)
 		llog.FlushAndExit(llog.ExitFlushTimeout, 1)
@@ -227,7 +227,15 @@ func GetOptions(fs *lflag.FlagSet) *Options {
 	return options
 }
 
-func getConfigFromEnv() (*Global, error) {
+func getConfigFromEnv(pnodeOpt NodeOptions, pcmd string) (*Global, error) {
+	var cfg Global
+
+	// User defined max volumes per node via the Helm Chart on worker nodes
+	if pnodeOpt.MaxVolumesPerNode > 0 && pcmd == string(lsdriver.NodeMode) {
+		llog.InfoS("[INFO] - getConfigFromEnv: Skip reading cloud configuration from environment variables because of user defined max volumes per node before")
+		return &cfg, nil
+	}
+
 	clientID := los.Getenv("VNGCLOUD_ACCESS_KEY_ID")
 	clientSecret := los.Getenv("VNGCLOUD_SECRET_ACCESS_KEY")
 	identityEndpoint := los.Getenv("VNGCLOUD_IDENTITY_ENDPOINT")
@@ -237,7 +245,6 @@ func getConfigFromEnv() (*Global, error) {
 		return nil, lfmt.Errorf("missing required environment variables")
 	}
 
-	var cfg Global
 	cfg.ClientID = clientID
 	cfg.ClientSecret = clientSecret
 	cfg.IdentityURL = identityEndpoint
