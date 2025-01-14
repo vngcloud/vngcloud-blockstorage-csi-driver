@@ -14,7 +14,7 @@ var (
 			WithKVparameters("volumeId", pvolId))
 	}
 
-	ErrVolumeFailedToDetach = func(pinstanceId, pvolId string, psdkErr lsdkErr.ISdkError) IError {
+	ErrVolumeFailedToDetach = func(pinstanceId, pvolId string, psdkErr lsdkErr.IError) IError {
 		return NewError(new(lsdkErr.SdkError).
 			WithErrorCode(EcVServerVolumeFailedToDetach).
 			WithErrors(psdkErr.GetError()).
@@ -23,7 +23,7 @@ var (
 			WithParameters(psdkErr.GetParameters()))
 	}
 
-	ErrVolumeFailedToGet = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
+	ErrVolumeFailedToGet = func(pvolId string, psdkErr lsdkErr.IError) IError {
 		return NewError(new(lsdkErr.SdkError).
 			WithErrorCode(EcVServerVolumeFailedToGet).
 			WithErrors(psdkErr.GetError()).
@@ -32,7 +32,7 @@ var (
 			WithParameters(psdkErr.GetParameters()))
 	}
 
-	ErrVolumeFailedToDelete = func(pvolId string, psdkErr lsdkErr.ISdkError) IError {
+	ErrVolumeFailedToDelete = func(pvolId string, psdkErr lsdkErr.IError) IError {
 		return NewError(new(lsdkErr.SdkError).
 			WithErrorCode(EcVServerVolumeFailedToDelete).
 			WithErrors(psdkErr.GetError()).
@@ -48,7 +48,7 @@ var (
 			WithKVparameters("volumeId", pvolId))
 	}
 
-	ErrVolumeFailedToAttach = func(pinstanceId, pvolId string, psdkErr lsdkErr.ISdkError) IError {
+	ErrVolumeFailedToAttach = func(pinstanceId, pvolId string, psdkErr lsdkErr.IError) IError {
 		return NewError(new(lsdkErr.SdkError).
 			WithErrorCode(EcVServerVolumeFailedToAttach).
 			WithErrors(psdkErr.GetError()).

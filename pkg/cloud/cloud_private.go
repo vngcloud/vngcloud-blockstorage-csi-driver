@@ -165,14 +165,14 @@ func (s *cloud) waitVolumeAchieveStatus(pvolID string, pdesiredStatus lset.Set[s
 	return resVolume, nil
 }
 
-func (s *cloud) checkSameZone(pvolTypeA, pvolTypeB string) (bool, lsdkErrs.ISdkError) {
+func (s *cloud) checkSameZone(pvolTypeA, pvolTypeB string) (bool, lsdkErrs.IError) {
 	if pvolTypeA == pvolTypeB {
 		return true, nil
 	}
 
 	var (
 		zoneSet = ljset.NewSet[string]()
-		sdkErr  lsdkErrs.ISdkError
+		sdkErr  lsdkErrs.IError
 	)
 
 	group, _ := lerrgroup.WithContext(lctx.TODO())

@@ -66,7 +66,7 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 	var (
 		vol, tmpVol *lsdkEntity.Volume
 		serr        lserr.IError
-		sdkErr      lsdkErrs.ISdkError
+		sdkErr      lsdkErrs.IError
 	)
 
 	// Get the volume depend on the volume name
