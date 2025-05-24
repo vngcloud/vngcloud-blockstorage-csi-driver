@@ -98,6 +98,8 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
 	volCap := preq.GetVolumeCapabilities() // get volume capabilities
 	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
+	zone := pickAvailabilityZone(preq.GetAccessibilityRequirements())
+	llog.V(5).InfoS("[INFO] - CreateVolume: zone info", "zone", zone)
 
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volName); !ok {
@@ -118,7 +120,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		}
 	}
 
-	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions)
+	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions).WithZone(zone)
 	parser, _ := ljoat.GetParser()
 	for pk, pv := range preq.GetParameters() {
 		llog.InfoS("[INFO] - CreateVolume: Parsing request parameters", "key", pk, "value", pv)
@@ -235,6 +237,36 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	s.k8sClient.PersistentVolumeClaimEventNormal(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
 		"CsiCreateVolumeSuccess", lfmt.Sprintf("Volume created successfully with ID %s for PersistentVolume %s", newVol.Id, newVol.Name))
 	return newCreateVolumeResponse(newVol, cvr, respCtx), nil
+}
+
+// pickAvailabilityZone selects 1 zone given topology requirement.
+// if not found, empty string is returned.
+func pickAvailabilityZone(requirement *lcsi.TopologyRequirement) string {
+	if requirement == nil {
+		return ""
+	}
+	for _, topology := range requirement.GetPreferred() {
+		zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]
+		if exists {
+			return zone
+		}
+
+		zone, exists = topology.GetSegments()[ZoneTopologyKey]
+		if exists {
+			return zone
+		}
+	}
+	for _, topology := range requirement.GetRequisite() {
+		zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]
+		if exists {
+			return zone
+		}
+		zone, exists = topology.GetSegments()[ZoneTopologyKey]
+		if exists {
+			return zone
+		}
+	}
+	return ""
 }
 
 func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {

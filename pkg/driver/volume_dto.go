@@ -36,6 +36,7 @@ type CreateVolumeRequest struct {
 	Ext4ClusterSize string
 	Ext4BigAlloc    bool
 	ReclaimPolicy   string
+	Zone            string
 
 	DriverOptions *DriverOptions
 }
@@ -48,6 +49,11 @@ func NewCreateVolumeRequest() *CreateVolumeRequest {
 	return &CreateVolumeRequest{
 		CreateFrom: lsdkVolumeV2.CreateFromNew, // set default value for createFrom field
 	}
+}
+
+func (s *CreateVolumeRequest) WithZone(zone string) *CreateVolumeRequest {
+	s.Zone = zone
+	return s
 }
 
 func (s *CreateVolumeRequest) WithClusterID(pclusterID string) *CreateVolumeRequest {
@@ -166,6 +172,7 @@ func (s *CreateVolumeRequest) WithReclaimPolicy(ppolicy string) *CreateVolumeReq
 func (s *CreateVolumeRequest) ToSdkCreateVolumeRequest() lsdkVolumeV2.ICreateBlockVolumeRequest {
 	opts := lsdkVolumeV2.NewCreateBlockVolumeRequest(s.VolumeName, s.VolumeTypeID, int64(s.VolumeSize)).
 		WithPoc(s.IsPoc).
+		WithZone(s.Zone).
 		WithMultiAttach(s.IsMultiAttach).
 		WithEncryptionType(lsdkVolumeV2.EncryptType(s.EncryptedAlgorithm)).
 		WithTags(s.prepareTag(s.DriverOptions.GetTagKeyLength(), s.DriverOptions.GetTagValueLength())...)
