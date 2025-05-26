@@ -557,6 +557,8 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 			return nil, sdkErr.GetError()
 		}
 		zone = server.ZoneId
+		klog.InfoS("[INFO] - NodeGetInfo: Get the server info successfully",
+			"nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	} else {
 		mvpn = s.driverOptions.maxVolumesPerNode
 		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
