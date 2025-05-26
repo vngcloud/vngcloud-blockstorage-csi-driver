@@ -6,6 +6,7 @@ import (
 	"fmt"
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
 	lsdkClientV2 "github.com/vngcloud/vngcloud-go-sdk/v2/client"
+	computev2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/compute/v2"
 	lsdkPortalSvcV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v1"
 	lsdkPortalSvcV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v2"
 	"golang.org/x/sys/unix"
@@ -548,6 +549,14 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 		mvpn = quota.Limit
 		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
 			"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
+
+		opt := computev2.NewGetServerByIdRequest(nodeUUID)
+		server, sdkErr := cloudClient.VServerGateway().V2().ComputeService().GetServerById(opt)
+		if sdkErr != nil {
+			klog.ErrorS(sdkErr.GetError(), "[ERROR] - GetServerByID: ", "nodeUUID", nodeUUID)
+			return nil, sdkErr.GetError()
+		}
+		zone = server.ZoneId
 	} else {
 		mvpn = s.driverOptions.maxVolumesPerNode
 		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
