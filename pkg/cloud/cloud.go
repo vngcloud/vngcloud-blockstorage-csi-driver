@@ -3,6 +3,7 @@ package cloud
 import (
 	lctx "context"
 	lfmt "fmt"
+	"strings"
 
 	ljmath "github.com/cuongpiger/joat/math"
 	ljtime "github.com/cuongpiger/joat/timer"
@@ -68,6 +69,13 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 		serr        lserr.IError
 		sdkErr      lsdkErrs.IError
 	)
+
+	volumeTypeId, sdkErr := s.GetVolumeTypeIdByName(preq.GetZone(), preq.GetVolumeType())
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to get the volume type ID by name", sdkErr.GetListParameters()...)
+		return nil, sdkErr
+	}
+	preq.WithVolumeType(volumeTypeId)
 
 	// Get the volume depend on the volume name
 	if preq.GetVolumeName() != "" {
@@ -554,4 +562,42 @@ func (s *cloud) GetDefaultVolumeType() (*lsentity.VolumeType, lserr.IError) {
 	}
 
 	return &lsentity.VolumeType{VolumeType: volType}, nil
+}
+
+func (s *cloud) GetVolumeTypeIdByName(zoneId, volumeName string) (string, lserr.IError) {
+	parts := strings.Split(volumeName, "-")
+	if len(parts) != 2 {
+		return volumeName, nil
+	}
+	volTypeName := strings.ToUpper(parts[0])
+	iopsName := parts[1]
+
+	req := lsdkVolumeV1.NewGetVolumeTypeZonesRequest(zoneId)
+	res, sdkErr := s.client.VServerGateway().V1().VolumeService().GetVolumeTypeZones(req)
+	if sdkErr != nil {
+		return "", lserr.NewError(sdkErr)
+	}
+
+	for _, vtZone := range res.VolumeTypeZones {
+		if vtZone == nil || vtZone.Name != volTypeName {
+			continue
+		}
+
+		listReq := lsdkVolumeV1.NewListVolumeTypeRequest(vtZone.Id)
+		listRes, sdkErr := s.client.VServerGateway().V1().VolumeService().GetListVolumeTypes(listReq)
+		if sdkErr != nil {
+			return "", lserr.NewError(sdkErr)
+		}
+
+		for _, vt := range listRes.VolumeTypes {
+			if vt != nil && vt.Name == iopsName {
+				llog.InfoS("[INFO] - GetVolumeTypeIdByName: Found volume type ID",
+					"volumeTypeId", vt.Id, "zoneId", zoneId, "volumeName", volumeName)
+				return vt.Id, nil
+			}
+		}
+		break
+	}
+
+	return volumeName, nil
 }
