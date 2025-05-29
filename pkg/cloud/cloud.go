@@ -570,7 +570,7 @@ func (s *cloud) GetVolumeTypeIdByName(zoneId, volumeName string) (string, lserr.
 		return volumeName, nil
 	}
 	volTypeName := strings.ToUpper(parts[0])
-	iopsName := parts[1]
+	iopsName := strings.TrimPrefix(parts[1], "iops")
 
 	req := lsdkVolumeV1.NewGetVolumeTypeZonesRequest(zoneId)
 	res, sdkErr := s.client.VServerGateway().V1().VolumeService().GetVolumeTypeZones(req)
@@ -596,6 +596,7 @@ func (s *cloud) GetVolumeTypeIdByName(zoneId, volumeName string) (string, lserr.
 				return vt.Id, nil
 			}
 		}
+		llog.InfoS("[INFO] - GetVolumeTypeIdByName: Not Found volume type", "zoneId", zoneId, "volumeName", volumeName)
 		break
 	}
 
