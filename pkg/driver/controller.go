@@ -631,13 +631,19 @@ func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmr
 		return nil, ErrFailedToGetVolume(volumeID)
 	}
 
-	if volume.VolumeTypeID == options.VolumeType {
+	volumeTypeId, sdkErr := s.cloud.GetVolumeTypeIdByName(volume.ZoneId, options.VolumeType)
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - ModifyVolumeProperties: Failed to get the volume type ID by name", sdkErr.GetListParameters()...)
+		return nil, ErrFailedToGetVolume(volumeID)
+	}
+
+	if volume.VolumeTypeID == options.VolumeType || volumeTypeId == volume.VolumeTypeID {
 		llog.V(2).Infof("[INFO] - ModifyVolumeProperties: Volume %s already has volume type %s", volumeID, options.VolumeType)
 		return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
 	}
 
 	llog.InfoS("[INFO] - ModifyVolumeProperties: Modifying volume", "volumeID", volumeID, "newVolumeType", options.VolumeType, "oldVolumeType", volume.VolumeTypeID, "newSize", volume.Size)
-	ierr := s.cloud.ModifyVolumeType(volumeID, options.VolumeType, int(volume.Size))
+	ierr := s.cloud.ModifyVolumeType(volumeID, volumeTypeId, int(volume.Size))
 	if ierr != nil {
 		llog.ErrorS(ierr.GetError(), "ModifyVolumeProperties: failed to modify volume", "volumeID", volumeID)
 		return nil, ierr.GetError()
