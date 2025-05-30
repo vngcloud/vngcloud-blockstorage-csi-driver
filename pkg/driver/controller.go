@@ -718,12 +718,18 @@ func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, p
 			},
 		}
 	}
+	segments := map[string]string{WellKnownZoneTopologyKey: disk.ZoneId}
 
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
 			VolumeId:      disk.Id,
 			CapacityBytes: int64(disk.Size * 1024 * 1024 * 1024),
 			VolumeContext: prespCtx,
+			AccessibleTopology: []*lcsi.Topology{
+				{
+					Segments: segments,
+				},
+			},
 			ContentSource: vcs,
 		},
 	}
