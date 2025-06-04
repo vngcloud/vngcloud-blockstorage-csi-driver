@@ -69,14 +69,6 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 		serr        lserr.IError
 		sdkErr      lsdkErrs.IError
 	)
-
-	volumeTypeId, sdkErr := s.GetVolumeTypeIdByName(preq.GetZone(), preq.GetVolumeType())
-	if sdkErr != nil {
-		llog.ErrorS(sdkErr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to get the volume type ID by name", sdkErr.GetListParameters()...)
-		return nil, sdkErr
-	}
-	preq.WithVolumeType(volumeTypeId)
-
 	// Get the volume depend on the volume name
 	if preq.GetVolumeName() != "" {
 		llog.InfoS("[INFO] - EitherCreateResizeVolume: Get the volume by name", "volumeName", preq.GetVolumeName())
@@ -596,9 +588,8 @@ func (s *cloud) GetVolumeTypeIdByName(zoneId, volumeName string) (string, lserr.
 				return vt.Id, nil
 			}
 		}
-		llog.InfoS("[INFO] - GetVolumeTypeIdByName: Not Found volume type", "zoneId", zoneId, "volumeName", volumeName)
 		break
 	}
-
+	llog.InfoS("[INFO] - GetVolumeTypeIdByName: Volume type ID response", "zoneId", zoneId, "volumeName", volumeName)
 	return volumeName, nil
 }
