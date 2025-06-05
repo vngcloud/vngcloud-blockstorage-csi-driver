@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 	lsdkClientV2 "github.com/vngcloud/vngcloud-go-sdk/v2/client"
 	computev2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/compute/v2"
 	lsdkPortalSvcV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v1"
@@ -25,9 +28,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 )
 
 type JSONPatch struct {
@@ -556,10 +556,7 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 			klog.ErrorS(sdkErr.GetError(), "[ERROR] - GetServerByID: ", "nodeUUID", nodeUUID)
 			return nil, sdkErr.GetError()
 		}
-		zone = server.ZoneId
-		if zone == "HCM03-1A" {
-			zone = "AZ01"
-		}
+		zone = lsutil.ConvertPortalZoneToVMZone(server.ZoneId)
 		klog.InfoS("[INFO] - NodeGetInfo: Get the server info successfully",
 			"nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	} else {
