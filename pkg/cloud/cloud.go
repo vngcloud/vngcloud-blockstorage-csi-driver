@@ -110,7 +110,7 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 		return nil, lserr.NewError(sdkErr)
 	}
 
-	llog.InfoS("[INFO] - EitherCreateResizeVolume: Created the volume successfully", "volumeID", vol.Id)
+	llog.InfoS("[INFO] - EitherCreateResizeVolume: Created the volume successfully", "volumeID", vol.Id, "zoneId", vol.ZoneId)
 	return &lsentity.Volume{
 		Volume: vol,
 	}, nil
