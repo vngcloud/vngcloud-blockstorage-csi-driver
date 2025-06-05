@@ -557,6 +557,9 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 			return nil, sdkErr.GetError()
 		}
 		zone = server.ZoneId
+		if zone == "HCM03-1A" {
+			zone = "AZ01"
+		}
 		klog.InfoS("[INFO] - NodeGetInfo: Get the server info successfully",
 			"nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	} else {
