@@ -92,6 +92,10 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	volCap := preq.GetVolumeCapabilities() // get volume capabilities
 	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
 	zone := pickAvailabilityZone(preq.GetAccessibilityRequirements())
+	if zone == "AZ01" {
+		zone = "HCM03-1A"
+	}
+
 	llog.V(5).InfoS("[INFO] - CreateVolume: zone info", "zone", zone)
 
 	// Validate volume size, if volume size is less than the default volume size of cloud provider, set it to the default volume size
