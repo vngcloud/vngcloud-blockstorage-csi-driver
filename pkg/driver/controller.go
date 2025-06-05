@@ -244,46 +244,27 @@ func pickAvailabilityZone(requirement *lcsi.TopologyRequirement) string {
 	if requirement == nil {
 		return ""
 	}
-
-	// Ưu tiên chọn AZ01 từ danh sách preferred
 	for _, topology := range requirement.GetPreferred() {
-		if zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]; exists && zone == "AZ01" {
+		zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]
+		if exists {
 			return zone
 		}
-		if zone, exists := topology.GetSegments()[ZoneTopologyKey]; exists && zone == "AZ01" {
+
+		zone, exists = topology.GetSegments()[ZoneTopologyKey]
+		if exists {
 			return zone
 		}
 	}
-
-	// Nếu không có AZ01, chọn zone đầu tiên có thể
-	for _, topology := range requirement.GetPreferred() {
-		if zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]; exists {
-			return zone
-		}
-		if zone, exists := topology.GetSegments()[ZoneTopologyKey]; exists {
-			return zone
-		}
-	}
-
-	// Tương tự với Requisite
 	for _, topology := range requirement.GetRequisite() {
-		if zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]; exists && zone == "AZ01" {
+		zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]
+		if exists {
 			return zone
 		}
-		if zone, exists := topology.GetSegments()[ZoneTopologyKey]; exists && zone == "AZ01" {
-			return zone
-		}
-	}
-
-	for _, topology := range requirement.GetRequisite() {
-		if zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]; exists {
-			return zone
-		}
-		if zone, exists := topology.GetSegments()[ZoneTopologyKey]; exists {
+		zone, exists = topology.GetSegments()[ZoneTopologyKey]
+		if exists {
 			return zone
 		}
 	}
-
 	return ""
 }
 
