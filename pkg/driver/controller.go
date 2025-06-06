@@ -721,7 +721,7 @@ func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, p
 			},
 		}
 	}
-	segments := map[string]string{WellKnownZoneTopologyKey: lsutil.ConvertPortalZoneToVMZone(disk.ZoneId)}
+	segments := map[string]string{ZoneTopologyKey: lsutil.ConvertPortalZoneToVMZone(disk.ZoneId)}
 
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
