@@ -3,6 +3,7 @@ package cloud
 import (
 	lctx "context"
 	lfmt "fmt"
+	"strings"
 
 	ljmath "github.com/cuongpiger/joat/math"
 	ljtime "github.com/cuongpiger/joat/timer"
@@ -68,7 +69,6 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 		serr        lserr.IError
 		sdkErr      lsdkErrs.IError
 	)
-
 	// Get the volume depend on the volume name
 	if preq.GetVolumeName() != "" {
 		llog.InfoS("[INFO] - EitherCreateResizeVolume: Get the volume by name", "volumeName", preq.GetVolumeName())
@@ -110,7 +110,7 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 		return nil, lserr.NewError(sdkErr)
 	}
 
-	llog.InfoS("[INFO] - EitherCreateResizeVolume: Created the volume successfully", "volumeID", vol.Id)
+	llog.InfoS("[INFO] - EitherCreateResizeVolume: Created the volume successfully", "volumeID", vol.Id, "zoneId", vol.ZoneId)
 	return &lsentity.Volume{
 		Volume: vol,
 	}, nil
@@ -554,4 +554,42 @@ func (s *cloud) GetDefaultVolumeType() (*lsentity.VolumeType, lserr.IError) {
 	}
 
 	return &lsentity.VolumeType{VolumeType: volType}, nil
+}
+
+func (s *cloud) GetVolumeTypeIdByName(zoneId, volumeName string) (string, lserr.IError) {
+	parts := strings.Split(volumeName, "-")
+	if len(parts) != 2 {
+		return volumeName, nil
+	}
+	volTypeName := strings.ToUpper(parts[0])
+	iopsName := strings.TrimPrefix(parts[1], "iops")
+
+	req := lsdkVolumeV1.NewGetVolumeTypeZonesRequest(zoneId)
+	res, sdkErr := s.client.VServerGateway().V1().VolumeService().GetVolumeTypeZones(req)
+	if sdkErr != nil {
+		return "", lserr.NewError(sdkErr)
+	}
+
+	for _, vtZone := range res.VolumeTypeZones {
+		if vtZone == nil || vtZone.Name != volTypeName {
+			continue
+		}
+
+		listReq := lsdkVolumeV1.NewListVolumeTypeRequest(vtZone.Id)
+		listRes, sdkErr := s.client.VServerGateway().V1().VolumeService().GetListVolumeTypes(listReq)
+		if sdkErr != nil {
+			return "", lserr.NewError(sdkErr)
+		}
+
+		for _, vt := range listRes.VolumeTypes {
+			if vt != nil && vt.Name == iopsName {
+				llog.InfoS("[INFO] - GetVolumeTypeIdByName: Found volume type ID",
+					"volumeTypeId", vt.Id, "zoneId", zoneId, "volumeName", volumeName)
+				return vt.Id, nil
+			}
+		}
+		break
+	}
+	llog.InfoS("[INFO] - GetVolumeTypeIdByName: Volume type ID response", "zoneId", zoneId, "volumeName", volumeName)
+	return volumeName, nil
 }

@@ -15,9 +15,9 @@ const (
 	AgentNotReadyNodeTaintKey                = "csi.vngcloud.vn/agent-not-ready"
 
 	DefaultTimeoutModifyChannel = 10 * ltime.Minute
-
-	DriverName      = "bs.csi.vngcloud.vn"
-	ZoneTopologyKey = "topology." + DriverName + "/zone"
+	WellKnownZoneTopologyKey    = "topology.kubernetes.io/zone"
+	DriverName                  = "bs.csi.vngcloud.vn"
+	ZoneTopologyKey             = "topology." + DriverName + "/zone"
 )
 
 // constants of disk partition suffix

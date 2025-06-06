@@ -88,16 +88,19 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		return nil, err
 	}
 
+	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
+	volCap := preq.GetVolumeCapabilities() // get volume capabilities
+	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
+	zone := lsutil.ConvertVMZoneToPortalZone(pickAvailabilityZone(preq.GetAccessibilityRequirements()))
+
+	llog.V(5).InfoS("[INFO] - CreateVolume: zone info", "zone", zone)
+
 	// Validate volume size, if volume size is less than the default volume size of cloud provider, set it to the default volume size
-	volSizeBytes, err := s.getVolSizeBytes(preq)
+	volumeTypeId, volSizeBytes, err := s.getVolSizeBytes(zone, preq)
 	if err != nil {
 		llog.ErrorS(err, "[ERROR] - CreateVolume: Failed to get volume size")
 		return nil, ErrFailedToValidateVolumeSize(preq.GetName(), err)
 	}
-
-	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
-	volCap := preq.GetVolumeCapabilities() // get volume capabilities
-	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
 
 	// check if a request is already in-flight
 	if ok := s.inFlight.Insert(volName); !ok {
@@ -118,13 +121,11 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		}
 	}
 
-	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions)
+	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions).WithZone(zone).WithVolumeTypeID(volumeTypeId)
 	parser, _ := ljoat.GetParser()
 	for pk, pv := range preq.GetParameters() {
 		llog.InfoS("[INFO] - CreateVolume: Parsing request parameters", "key", pk, "value", pv)
 		switch lstr.ToLower(pk) {
-		case VolumeTypeKey:
-			cvr = cvr.WithVolumeTypeID(pv)
 		case EncryptedKey:
 			cvr = cvr.WithEncrypted(pv)
 		case PVCNameKey:
@@ -235,6 +236,36 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	s.k8sClient.PersistentVolumeClaimEventNormal(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
 		"CsiCreateVolumeSuccess", lfmt.Sprintf("Volume created successfully with ID %s for PersistentVolume %s", newVol.Id, newVol.Name))
 	return newCreateVolumeResponse(newVol, cvr, respCtx), nil
+}
+
+// pickAvailabilityZone selects 1 zone given topology requirement.
+// if not found, empty string is returned.
+func pickAvailabilityZone(requirement *lcsi.TopologyRequirement) string {
+	if requirement == nil {
+		return ""
+	}
+	for _, topology := range requirement.GetPreferred() {
+		zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]
+		if exists {
+			return zone
+		}
+
+		zone, exists = topology.GetSegments()[ZoneTopologyKey]
+		if exists {
+			return zone
+		}
+	}
+	for _, topology := range requirement.GetRequisite() {
+		zone, exists := topology.GetSegments()[WellKnownZoneTopologyKey]
+		if exists {
+			return zone
+		}
+		zone, exists = topology.GetSegments()[ZoneTopologyKey]
+		if exists {
+			return zone
+		}
+	}
+	return ""
 }
 
 func (s *controllerService) DeleteVolume(pctx lctx.Context, preq *lcsi.DeleteVolumeRequest) (*lcsi.DeleteVolumeResponse, error) {
@@ -599,13 +630,19 @@ func (s *controllerService) ModifyVolumeProperties(pctx lctx.Context, preq *lvmr
 		return nil, ErrFailedToGetVolume(volumeID)
 	}
 
-	if volume.VolumeTypeID == options.VolumeType {
+	volumeTypeId, sdkErr := s.cloud.GetVolumeTypeIdByName(volume.ZoneId, options.VolumeType)
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - ModifyVolumeProperties: Failed to get the volume type ID by name", sdkErr.GetListParameters()...)
+		return nil, ErrFailedToGetVolume(volumeID)
+	}
+
+	if volume.VolumeTypeID == options.VolumeType || volumeTypeId == volume.VolumeTypeID {
 		llog.V(2).Infof("[INFO] - ModifyVolumeProperties: Volume %s already has volume type %s", volumeID, options.VolumeType)
 		return &lvmrpc.ModifyVolumePropertiesResponse{}, nil
 	}
 
 	llog.InfoS("[INFO] - ModifyVolumeProperties: Modifying volume", "volumeID", volumeID, "newVolumeType", options.VolumeType, "oldVolumeType", volume.VolumeTypeID, "newSize", volume.Size)
-	ierr := s.cloud.ModifyVolumeType(volumeID, options.VolumeType, int(volume.Size))
+	ierr := s.cloud.ModifyVolumeType(volumeID, volumeTypeId, int(volume.Size))
 	if ierr != nil {
 		llog.ErrorS(ierr.GetError(), "ModifyVolumeProperties: failed to modify volume", "volumeID", volumeID)
 		return nil, ierr.GetError()
@@ -636,7 +673,7 @@ func (s *controllerService) getClusterID() string {
 	return s.driverOptions.clusterID
 }
 
-func (s *controllerService) getVolSizeBytes(preq *lcsi.CreateVolumeRequest) (volSizeBytes int64, err error) {
+func (s *controllerService) getVolSizeBytes(zoneID string, preq *lcsi.CreateVolumeRequest) (volumeTypeId string, volSizeBytes int64, err error) {
 	// get the volume size that user provided
 	if preq.GetCapacityRange() != nil {
 		volSizeBytes = preq.GetCapacityRange().GetRequiredBytes()
@@ -648,25 +685,29 @@ func (s *controllerService) getVolSizeBytes(preq *lcsi.CreateVolumeRequest) (vol
 		// If the user forget to specify the volume type, get the default volume type
 		tmpVolType, sdkErr := s.cloud.GetDefaultVolumeType()
 		if sdkErr != nil {
-			return 0, sdkErr.GetError()
+			return "", 0, sdkErr.GetError()
 		}
 
 		volType = tmpVolType.Id
 	}
+	volumeTypeId, sdkErr := s.cloud.GetVolumeTypeIdByName(zoneID, volType)
+	if sdkErr != nil {
+		return "", 0, sdkErr.GetError()
+	}
 
 	// Get the minimum volume size allowed by the volume type
-	volTypeEntity, sdkErr := s.cloud.GetVolumeTypeById(volType)
+	volTypeEntity, sdkErr := s.cloud.GetVolumeTypeById(volumeTypeId)
 	if sdkErr != nil {
-		return 0, sdkErr.GetError()
+		return "", 0, sdkErr.GetError()
 	}
 
 	// Calculate the bytes that cloud provider allowing to create the volume
 	cvs := lsutil.GiBToBytes(int64(volTypeEntity.MinSize))
 	if volSizeBytes < cvs {
-		return 0, ErrVolumeSizeTooSmall(preq.GetName(), volSizeBytes)
+		return volumeTypeId, 0, ErrVolumeSizeTooSmall(preq.GetName(), volSizeBytes)
 	}
 
-	return volSizeBytes, nil
+	return volumeTypeId, volSizeBytes, nil
 }
 
 func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
@@ -680,12 +721,18 @@ func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, p
 			},
 		}
 	}
+	segments := map[string]string{WellKnownZoneTopologyKey: lsutil.ConvertPortalZoneToVMZone(disk.ZoneId)}
 
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
 			VolumeId:      disk.Id,
 			CapacityBytes: int64(disk.Size * 1024 * 1024 * 1024),
 			VolumeContext: prespCtx,
+			AccessibleTopology: []*lcsi.Topology{
+				{
+					Segments: segments,
+				},
+			},
 			ContentSource: vcs,
 		},
 	}

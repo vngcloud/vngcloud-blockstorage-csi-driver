@@ -24,4 +24,5 @@ type Cloud interface {
 	ListSnapshots(pvolID string, ppage int, ppageSize int) (*lsentity.ListSnapshots, lserr.IError)
 	GetVolumeTypeById(pvolTypeId string) (*lsentity.VolumeType, lserr.IError)
 	GetDefaultVolumeType() (*lsentity.VolumeType, lserr.IError)
+	GetVolumeTypeIdByName(zoneId string, volumeName string) (string, lserr.IError)
 }

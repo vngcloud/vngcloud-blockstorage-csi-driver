@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	lcsi "github.com/container-storage-interface/spec/lib/go/csi"
+	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
+	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
+	//lsutil "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/util"
 	lsdkClientV2 "github.com/vngcloud/vngcloud-go-sdk/v2/client"
+	//computev2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/compute/v2"
 	lsdkPortalSvcV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v1"
 	lsdkPortalSvcV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v2"
 	"golang.org/x/sys/unix"
@@ -24,9 +28,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	lscloud "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/cloud"
-	lsinternal "github.com/vngcloud/vngcloud-blockstorage-csi-driver/pkg/driver/internal"
 )
 
 type JSONPatch struct {
@@ -548,6 +549,15 @@ func (s *nodeService) NodeGetInfo(_ lctx.Context, _ *lcsi.NodeGetInfoRequest) (*
 		mvpn = quota.Limit
 		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
 			"quota", quota, "nodeId", nodeUUID, "zone", zone, "projectId", projectID)
+		//opt := computev2.NewGetServerByIdRequest(nodeUUID)
+		//server, sdkErr := cloudClient.VServerGateway().V2().ComputeService().GetServerById(opt)
+		//if sdkErr != nil {
+		//	klog.ErrorS(sdkErr.GetError(), "[ERROR] - GetServerByID: ", "nodeUUID", nodeUUID)
+		//	return nil, sdkErr.GetError()
+		//}
+		//zone = lsutil.ConvertPortalZoneToVMZone(server.ZoneId)
+		//klog.InfoS("[INFO] - NodeGetInfo: Get the server info successfully",
+		//	"nodeId", nodeUUID, "zone", zone, "projectId", projectID)
 	} else {
 		mvpn = s.driverOptions.maxVolumesPerNode
 		klog.InfoS("[INFO] - NodeGetInfo: Setup the VngCloud Manage CSI driver for this node successfully",
@@ -881,8 +891,9 @@ func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
 	if err != nil {
 		return fmt.Errorf("isAllocatableSet: failed to get CSINode for %s: %w", nodeName, err)
 	}
-
+	klog.InfoS("CSINode drivers: ", "nodeName", nodeName, "driverName", csiNode.Spec)
 	for _, driver := range csiNode.Spec.Drivers {
+		klog.InfoS("CSINode driver info", "nodeName", nodeName, "driverName", driver.Name, "count", *driver.Allocatable.Count)
 		if driver.Name == DriverName {
 			if driver.Allocatable != nil && driver.Allocatable.Count != nil {
 				klog.InfoS("CSINode Allocatable value is set", "nodeName", nodeName, "count", *driver.Allocatable.Count)
