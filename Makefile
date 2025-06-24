@@ -146,11 +146,6 @@ build-local-image-%:
 		.
 
 bush-image-%:
-	$(CONTAINER_ENGINE) build \
-		--build-arg VERSION=$(VERSION) \
-		--tag $(REGISTRY)/$*:$(VERSION) \
-		.
-
 	$(CONTAINER_ENGINE) image push $(REGISTRY)/$*:$(VERSION)
 
 # Build all images locally
