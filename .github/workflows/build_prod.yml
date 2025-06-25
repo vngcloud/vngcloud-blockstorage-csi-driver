@@ -1,8 +1,11 @@
-name: Build & Push Docker Image
+name: Release PROD - Build & Push Image
 
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: 'Tag version to build'
+        required: true
       registry:
         description: 'Select which registry to build & push to'
         required: true
