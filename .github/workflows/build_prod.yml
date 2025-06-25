@@ -24,21 +24,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set common environment
-        run: |
-          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
-          echo "REGISTRY_INPUT=${{ github.event.inputs.registry }}" >> $GITHUB_ENV
-
       ###########################
       # VCR_REGISTRY
       ###########################
-
       - name: Build image for VCR_REGISTRY
         if: env.REGISTRY_INPUT == 'VCR_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         env:
           REGISTRY: ${{ vars.VCR_REGISTRY }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
         run: make build-local-images
 
       - name: Login to VCR_REGISTRY
@@ -53,7 +46,7 @@ jobs:
         if: env.REGISTRY_INPUT == 'VCR_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         env:
           REGISTRY: ${{ vars.VCR_REGISTRY }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
         run: make push-local-images
 
       ###########################
@@ -64,7 +57,7 @@ jobs:
         if: env.REGISTRY_INPUT == 'VCR_HAN_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         env:
           REGISTRY: ${{ vars.VCR_HAN_REGISTRY }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
         run: make build-local-images
 
       - name: Login to VCR_HAN_REGISTRY
@@ -79,5 +72,5 @@ jobs:
         if: env.REGISTRY_INPUT == 'VCR_HAN_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         env:
           REGISTRY: ${{ vars.VCR_HAN_REGISTRY }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.version }}
         run: make push-local-images
