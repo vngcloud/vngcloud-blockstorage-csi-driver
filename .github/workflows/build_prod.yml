@@ -1,56 +1,80 @@
-name: Build image on MAIN branch
+name: Build & Push Docker Image
 
 on:
-  push:
-    tags:
-      - 'v*'
-  pull_request:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: 'Select which registry to build & push to'
+        required: true
+        default: 'ALL'
+        type: choice
+        options:
+          - ALL
+          - VCR_REGISTRY
+          - VCR_HAN_REGISTRY
 
 jobs:
-  package-image:
+  build-and-push:
     runs-on: ubuntu-latest
-    environment:
-      name: production  # Set the environment name
+    environment: production
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Get previous tag
-        id: previoustag
-        uses: "WyriHaximus/github-action-get-previous-tag@v1"
-        with:
-          fallback: 1.0.0 # Optional fallback tag to use when no tag can be found
-          #workingDirectory: another/path/where/a/git/repo/is/checked/out # Optional alternative working directory
-      - name: Build vngcloud-blockstorage-csi-driver image
-        env:
-          NEW_VERSION: ${{ steps.previoustag.outputs.tag }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set common environment
         run: |
-          export REGISTRY=${{ vars.VCR_REGISTRY }}
-          export VERSION=${{ github.ref_name }}
-          make build-local-images
-      - name: Login to VngCloud Registry
+          echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "REGISTRY_INPUT=${{ github.event.inputs.registry }}" >> $GITHUB_ENV
+
+      ###########################
+      # VCR_REGISTRY
+      ###########################
+
+      - name: Build image for VCR_REGISTRY
+        if: env.REGISTRY_INPUT == 'VCR_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
+        env:
+          REGISTRY: ${{ vars.VCR_REGISTRY }}
+          VERSION: ${{ github.ref_name }}
+        run: make build-local-images
+
+      - name: Login to VCR_REGISTRY
+        if: env.REGISTRY_INPUT == 'VCR_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         uses: docker/login-action@v3
         with:
           registry: ${{ vars.VCR_REGISTRY }}
           username: ${{ secrets.VCR_USERNAME }}
           password: ${{ secrets.VCR_PASSWORD }}
-      - name: Push vngcloud-blockstorage-csi-driver image to vcr registry
+
+      - name: Push image to VCR_REGISTRY
+        if: env.REGISTRY_INPUT == 'VCR_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         env:
-          NEW_VERSION: ${{ steps.previoustag.outputs.tag }}
-        run: |
-          export REGISTRY=${{ vars.VCR_REGISTRY }}
-          export VERSION=${{ github.ref_name }}
-          make bush-local-images
-      - name: Login to VngCloud Registry HAN
+          REGISTRY: ${{ vars.VCR_REGISTRY }}
+          VERSION: ${{ github.ref_name }}
+        run: make push-local-images
+
+      ###########################
+      # VCR_HAN_REGISTRY
+      ###########################
+
+      - name: Build image for VCR_HAN_REGISTRY
+        if: env.REGISTRY_INPUT == 'VCR_HAN_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
+        env:
+          REGISTRY: ${{ vars.VCR_HAN_REGISTRY }}
+          VERSION: ${{ github.ref_name }}
+        run: make build-local-images
+
+      - name: Login to VCR_HAN_REGISTRY
+        if: env.REGISTRY_INPUT == 'VCR_HAN_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         uses: docker/login-action@v3
         with:
           registry: ${{ vars.VCR_HAN_REGISTRY }}
           username: ${{ secrets.VCR_HAN_USERNAME }}
           password: ${{ secrets.VCR_HAN_PASSWORD }}
-      - name: Push vngcloud-blockstorage-csi-driver image to vcr registry
+
+      - name: Push image to VCR_HAN_REGISTRY
+        if: env.REGISTRY_INPUT == 'VCR_HAN_REGISTRY' || env.REGISTRY_INPUT == 'ALL'
         env:
-          NEW_VERSION: ${{ steps.previoustag.outputs.tag }}
-        run: |
-          export REGISTRY=${{ vars.VCR_HAN_REGISTRY }}
-          export VERSION=${{ github.ref_name }}
-          make bush-local-images
+          REGISTRY: ${{ vars.VCR_HAN_REGISTRY }}
+          VERSION: ${{ github.ref_name }}
+        run: make push-local-images
