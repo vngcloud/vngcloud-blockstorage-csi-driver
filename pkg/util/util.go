@@ -73,7 +73,7 @@ func ConvertPortalZoneToVMZone(zone string) string {
 		return "HCM-1C"
 	case "BKK-01":
 		return "BKK01"
-	case "HAN-01":
+	case "HAN01-1A":
 		return "az01"
 	default:
 		return zone
@@ -91,7 +91,7 @@ func ConvertVMZoneToPortalZone(zone string) string {
 	case "BKK01":
 		return "BKK-01"
 	case "az01":
-		return "HAN-01"
+		return "HAN01-1A"
 	default:
 		return zone
 	}

@@ -758,10 +758,9 @@ func (s *nodeService) isMounted(_ string, target string) (bool, error) {
 }
 
 func (s *nodeService) getDevicePath(volumeID string) (string, error) {
-	var devicePath string
 	devicePath, err := s.mounter.GetDevicePathBySerialID(volumeID)
 	if err != nil {
-		klog.Warningf("Couldn't get device path from mount: %v", err)
+		return "", fmt.Errorf("failed to get device path for volume %s: %w", volumeID, err)
 	}
 
 	return devicePath, nil
@@ -893,7 +892,7 @@ func checkAllocatable(clientset kubernetes.Interface, nodeName string) error {
 	}
 	klog.InfoS("CSINode drivers: ", "nodeName", nodeName, "driverName", csiNode.Spec)
 	for _, driver := range csiNode.Spec.Drivers {
-		klog.InfoS("CSINode driver info", "nodeName", nodeName, "driverName", driver.Name, "count", *driver.Allocatable.Count)
+		klog.InfoS("CSINode driver info", "nodeName", nodeName, "driverName", driver)
 		if driver.Name == DriverName {
 			if driver.Allocatable != nil && driver.Allocatable.Count != nil {
 				klog.InfoS("CSINode Allocatable value is set", "nodeName", nodeName, "count", *driver.Allocatable.Count)
