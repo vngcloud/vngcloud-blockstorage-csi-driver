@@ -758,10 +758,9 @@ func (s *nodeService) isMounted(_ string, target string) (bool, error) {
 }
 
 func (s *nodeService) getDevicePath(volumeID string) (string, error) {
-	var devicePath string
 	devicePath, err := s.mounter.GetDevicePathBySerialID(volumeID)
 	if err != nil {
-		klog.Warningf("Couldn't get device path from mount: %v", err)
+		return "", fmt.Errorf("failed to get device path for volume %s: %w", volumeID, err)
 	}
 
 	return devicePath, nil
