@@ -15,6 +15,7 @@ import (
 	lsdkErrs "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/sdk_error"
 	lsdkComputeV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/compute/v2"
 	lsdkPortalSvcV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/portal/v1"
+	lsdkServerV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/server/v1"
 	lsdkVolumeV1 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/volume/v1"
 	lsdkVolumeV2 "github.com/vngcloud/vngcloud-go-sdk/v2/vngcloud/services/volume/v2"
 	llog "k8s.io/klog/v2"
@@ -108,6 +109,16 @@ func (s *cloud) EitherCreateResizeVolume(preq lsdkVolumeV2.ICreateBlockVolumeReq
 	if sdkErr != nil {
 		llog.ErrorS(sdkErr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to create the volume", sdkErr.GetListParameters()...)
 		return nil, lserr.NewError(sdkErr)
+	}
+
+	opt := lsdkServerV1.NewSystemTagRequest(
+		vol.Id,
+		lsdkServerV1.Volume).
+		AddTag("vng.billing.product", "VKS")
+
+	_, sdkErr = s.client.VServerGateway().InternalV1().ServerService().CreateSystemTags(opt)
+	if sdkErr != nil {
+		llog.ErrorS(sdkErr.GetError(), "[ERROR] - EitherCreateResizeVolume: Failed to create system tags for volume", sdkErr.GetListParameters()...)
 	}
 
 	llog.InfoS("[INFO] - EitherCreateResizeVolume: Created the volume successfully", "volumeID", vol.Id, "zoneId", vol.ZoneId)

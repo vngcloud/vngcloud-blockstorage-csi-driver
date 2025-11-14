@@ -126,8 +126,8 @@ github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsT
 github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/vngcloud/vngcloud-csi-volume-modifier v1.0.2 h1:LBSW1T0W4HxJKtpgSYbL5ZL1XiyOTF2nHIs8uqG5uoo=
 github.com/vngcloud/vngcloud-csi-volume-modifier v1.0.2/go.mod h1:wkhxk+x3ILNOk0aUxGivvhdiOXxPOVNXeRDHUx/IR50=
-github.com/vngcloud/vngcloud-go-sdk/v2 v2.15.3 h1:YT5A+pRdBvgay604IOijbDZ6CkiYsLqKTMyq+NiBiHI=
-github.com/vngcloud/vngcloud-go-sdk/v2 v2.15.3/go.mod h1:FetWUe2fEuqySEkYgkuDgt/WOAlI/YC02reGqjdJRMU=
+github.com/vngcloud/vngcloud-go-sdk/v2 v2.16.5-0.20251114065840-3d8ce6125496 h1:bl2ysrqdbGSDRPVqf8Y/B4PNVLa7Izo/gBF79CSve4I=
+github.com/vngcloud/vngcloud-go-sdk/v2 v2.16.5-0.20251114065840-3d8ce6125496/go.mod h1:FetWUe2fEuqySEkYgkuDgt/WOAlI/YC02reGqjdJRMU=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.51.0 h1:A3SayB3rNyt+1S6qpI9mHPkeHTZbD7XILEqWnYZb2l0=
