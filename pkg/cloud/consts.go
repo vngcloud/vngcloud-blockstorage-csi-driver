@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	VksOldClusterIdTagKey   = "vks-cluster-id"
 	VksClusterIdTagKey      = "vng.vks.cluster.id"
 	VksBillingProductTagKey = "vng.billing.product"
 	VksPvcNamespaceTagKey   = "vng.vks.namespace"

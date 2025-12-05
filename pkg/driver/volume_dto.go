@@ -188,6 +188,7 @@ func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []string {
 	var vts []string
 	if s.ClusterID != "" {
 		vts = append(vts, ljoat.Truncate(lscloud.VksClusterIdTagKey, ptkl), ljoat.Truncate(s.ClusterID, ptvl))
+		vts = append(vts, ljoat.Truncate(lscloud.VksOldClusterIdTagKey, ptkl), ljoat.Truncate(s.ClusterID, ptvl))
 	}
 
 	if s.PvcNameTag != "" {
