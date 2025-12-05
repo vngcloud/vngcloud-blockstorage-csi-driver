@@ -210,7 +210,7 @@ func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []string {
 	if s.ReclaimPolicy != "" {
 		vts = append(vts, ljoat.Truncate(lscloud.VksReclaimPolicyTagKey, ptkl), ljoat.Truncate(s.ReclaimPolicy, ptvl))
 	}
-	vts = append(vts, ljoat.Truncate(lscloud.VksBillingProductTagKey, ptkl), "VKS")
+	vts = append(vts, ljoat.Truncate(lscloud.VksBillingProductTagKey, ptkl), "vks")
 
 	return vts
 }
