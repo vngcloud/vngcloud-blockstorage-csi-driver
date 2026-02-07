@@ -91,12 +91,24 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 	volName := preq.GetName()              // get the name of the volume, always in the format of pvc-<random-uuid>
 	volCap := preq.GetVolumeCapabilities() // get volume capabilities
 	multiAttach := isMultiAttach(volCap)   // check if the volume is multi-attach, true if multi-attach, false otherwise
-	zone := lsutil.ConvertVMZoneToPortalZone(pickAvailabilityZone(preq.GetAccessibilityRequirements()))
+	listZones, serr := s.cloud.GetListZones()
+	if serr != nil {
+		llog.ErrorS(serr.GetError(), "[ERROR] - CreateVolume: Failed to list availability zones")
+		return nil, serr.GetError()
+	}
+	availabilityZone := pickAvailabilityZone(preq.GetAccessibilityRequirements())
+	portalZone := availabilityZone
+	for _, az := range listZones.Items {
+		if az.OpenstackZone == availabilityZone {
+			portalZone = az.Uuid
+			break
+		}
+	}
 
-	llog.V(5).InfoS("[INFO] - CreateVolume: zone info", "zone", zone)
+	llog.V(5).InfoS("[INFO] - CreateVolume: availability zone", "portalZone", portalZone)
 
 	// Validate volume size, if volume size is less than the default volume size of cloud provider, set it to the default volume size
-	volumeTypeId, volSizeBytes, err := s.getVolSizeBytes(zone, preq)
+	volumeTypeId, volSizeBytes, err := s.getVolSizeBytes(portalZone, preq)
 	if err != nil {
 		llog.ErrorS(err, "[ERROR] - CreateVolume: Failed to get volume size")
 		return nil, ErrFailedToValidateVolumeSize(preq.GetName(), err)
@@ -121,7 +133,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		}
 	}
 
-	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions).WithZone(zone).WithVolumeTypeID(volumeTypeId)
+	cvr := NewCreateVolumeRequest().WithDriverOptions(s.driverOptions).WithZone(portalZone).WithVolumeTypeID(volumeTypeId)
 	parser, _ := ljoat.GetParser()
 	for pk, pv := range preq.GetParameters() {
 		llog.InfoS("[INFO] - CreateVolume: Parsing request parameters", "key", pk, "value", pv)
@@ -235,7 +247,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 
 	s.k8sClient.PersistentVolumeClaimEventNormal(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
 		"CsiCreateVolumeSuccess", lfmt.Sprintf("Volume created successfully with ID %s for PersistentVolume %s", newVol.Id, newVol.Name))
-	return newCreateVolumeResponse(newVol, cvr, respCtx), nil
+	return newCreateVolumeResponse(newVol, availabilityZone, cvr, respCtx), nil
 }
 
 // pickAvailabilityZone selects 1 zone given topology requirement.
@@ -710,7 +722,7 @@ func (s *controllerService) getVolSizeBytes(zoneID string, preq *lcsi.CreateVolu
 	return volumeTypeId, volSizeBytes, nil
 }
 
-func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
+func newCreateVolumeResponse(disk *lsentity.Volume, availabilityZone string, pcvr *CreateVolumeRequest, prespCtx map[string]string) *lcsi.CreateVolumeResponse {
 	var vcs *lcsi.VolumeContentSource
 	if pcvr.SnapshotID != "" {
 		vcs = &lcsi.VolumeContentSource{
@@ -721,8 +733,7 @@ func newCreateVolumeResponse(disk *lsentity.Volume, pcvr *CreateVolumeRequest, p
 			},
 		}
 	}
-	segments := map[string]string{ZoneTopologyKey: lsutil.ConvertPortalZoneToVMZone(disk.ZoneId)}
-
+	segments := map[string]string{ZoneTopologyKey: availabilityZone}
 	return &lcsi.CreateVolumeResponse{
 		Volume: &lcsi.Volume{
 			VolumeId:      disk.Id,
