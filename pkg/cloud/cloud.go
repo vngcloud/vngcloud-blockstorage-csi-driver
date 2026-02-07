@@ -593,3 +593,12 @@ func (s *cloud) GetVolumeTypeIdByName(zoneId, volumeName string) (string, lserr.
 	llog.InfoS("[INFO] - GetVolumeTypeIdByName: Volume type ID response", "zoneId", zoneId, "volumeName", volumeName)
 	return volumeName, nil
 }
+
+func (s *cloud) GetListZones() (*lsentity.ListZones, lserr.IError) {
+	res, sdkErr := s.client.VServerGateway().V2().PortalService().ListZones()
+	if sdkErr != nil {
+		return nil, lserr.NewError(sdkErr)
+	}
+
+	return &lsentity.ListZones{ListZones: res}, nil
+}

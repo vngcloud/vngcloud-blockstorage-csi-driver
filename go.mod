@@ -7,7 +7,7 @@ require (
 	github.com/cuongpiger/joat v1.0.17
 	github.com/spf13/pflag v1.0.5
 	github.com/vngcloud/vngcloud-csi-volume-modifier v1.0.2
-	github.com/vngcloud/vngcloud-go-sdk/v2 v2.15.3
+	github.com/vngcloud/vngcloud-go-sdk/v2 v2.18.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.51.0
 	go.opentelemetry.io/otel v1.26.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.26.0
@@ -24,7 +24,7 @@ require (
 	k8s.io/klog/v2 v2.120.1
 	k8s.io/kubernetes v1.30.1
 	k8s.io/mount-utils v0.30.1
-	k8s.io/utils v0.0.0-20240502163921-fe8a2dddb1d0
+	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 )
 
 require (

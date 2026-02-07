@@ -25,4 +25,5 @@ type Cloud interface {
 	GetVolumeTypeById(pvolTypeId string) (*lsentity.VolumeType, lserr.IError)
 	GetDefaultVolumeType() (*lsentity.VolumeType, lserr.IError)
 	GetVolumeTypeIdByName(zoneId string, volumeName string) (string, lserr.IError)
+	GetListZones() (*lsentity.ListZones, lserr.IError)
 }

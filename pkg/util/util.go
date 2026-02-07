@@ -62,37 +62,3 @@ func RoundUpGiB(volumeSizeBytes int64) int64 {
 func GiBToBytes(volumeSizeGiB int64) int64 {
 	return volumeSizeGiB * GiB
 }
-
-func ConvertPortalZoneToVMZone(zone string) string {
-	switch zone {
-	case "HCM03-1A":
-		return "AZ01"
-	case "HCM03-1B":
-		return "HCM-1B"
-	case "HCM03-1C":
-		return "HCM-1C"
-	case "BKK-01":
-		return "BKK01"
-	case "HAN01-1A":
-		return "az01"
-	default:
-		return zone
-	}
-}
-
-func ConvertVMZoneToPortalZone(zone string) string {
-	switch zone {
-	case "AZ01":
-		return "HCM03-1A"
-	case "HCM-1B":
-		return "HCM03-1B"
-	case "HCM-1C":
-		return "HCM03-1C"
-	case "BKK01":
-		return "BKK-01"
-	case "az01":
-		return "HAN01-1A"
-	default:
-		return zone
-	}
-}
