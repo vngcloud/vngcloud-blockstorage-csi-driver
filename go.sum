@@ -128,6 +128,8 @@ github.com/vngcloud/vngcloud-csi-volume-modifier v1.0.2 h1:LBSW1T0W4HxJKtpgSYbL5
 github.com/vngcloud/vngcloud-csi-volume-modifier v1.0.2/go.mod h1:wkhxk+x3ILNOk0aUxGivvhdiOXxPOVNXeRDHUx/IR50=
 github.com/vngcloud/vngcloud-go-sdk/v2 v2.18.4 h1:uEyxwKQu5RcJP+KZRGBR/I4qjimXO+Jh70lDWHvgGxk=
 github.com/vngcloud/vngcloud-go-sdk/v2 v2.18.4/go.mod h1:QSozk2TXoXaLU+vWYCJ2QYIiy8Z4ggSX6mlNeccMEME=
+github.com/vngcloud/vngcloud-go-sdk/v2 v2.18.6-0.20260304074419-e3ff07288b85 h1:3AI4p10PVKDJDZ/87c8G4V1s/toGw5ezZ7YrGMsiRfU=
+github.com/vngcloud/vngcloud-go-sdk/v2 v2.18.6-0.20260304074419-e3ff07288b85/go.mod h1:QSozk2TXoXaLU+vWYCJ2QYIiy8Z4ggSX6mlNeccMEME=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.51.0 h1:A3SayB3rNyt+1S6qpI9mHPkeHTZbD7XILEqWnYZb2l0=
