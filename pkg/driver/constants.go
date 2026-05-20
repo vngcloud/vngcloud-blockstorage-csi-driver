@@ -60,9 +60,6 @@ const (
 	// PVCNamespaceKey contains namespace of the PVC for which is a volume provisioned.
 	PVCNamespaceKey = "csi.storage.k8s.io/pvc/namespace"
 
-	// PVNameKey contains name of the final PV that will be used for the dynamically provisioned volume
-	PVNameKey = "csi.storage.k8s.io/pv/name"
-
 	// BlockSizeKey configures the block size when formatting a volume
 	BlockSizeKey = "blocksize"
 

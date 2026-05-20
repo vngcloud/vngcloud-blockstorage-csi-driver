@@ -22,3 +22,6 @@ rad.json
 TestResults.xml
 .idea/
 /vngcloud-blockstorage-csi-driver
+
+# macOS
+.DS_Store

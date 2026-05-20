@@ -144,8 +144,6 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 			cvr = cvr.WithPvcNameTag(pv)
 		case PVCNamespaceKey:
 			cvr = cvr.WithPvcNamespaceTag(pv)
-		case PVNameKey:
-			cvr = cvr.WithPvNameTag(pv)
 		case BlockSizeKey:
 			if isAlphanumeric := parser.StringIsAlphanumeric(pv); !isAlphanumeric {
 				return nil, ErrCanNotParseRequestArguments(BlockSizeKey, pv)
@@ -220,17 +218,7 @@ func (s *controllerService) CreateVolume(pctx lctx.Context, preq *lcsi.CreateVol
 		return nil, ierr.GetError()
 	}
 
-	// Get the StorageClass from the API server
-	sc, ierr := s.k8sClient.GetStorageClassByName(pctx, pvc.GetStorageClassName())
-	if ierr != nil {
-		llog.ErrorS(ierr.GetError(), "[ERROR] - CreateVolume: Failed to get StorageClass", "storageClassName", pvc.GetStorageClassName())
-		s.k8sClient.PersistentVolumeClaimEventWarning(pctx, cvr.PvcNamespaceTag, cvr.PvcNameTag,
-			"CsiGetStorageClassFailure", ierr.GetMessage())
-		return nil, ierr.GetError()
-	}
-
-	cvr = cvr.WithReclaimPolicy(sc.GetReclaimPolicyAsString()).
-		WithVolumeTypeID(pvc.GetCsiVolumeTypeAnnotation())
+	cvr = cvr.WithVolumeTypeID(pvc.GetCsiVolumeTypeAnnotation())
 
 	// Check if the PVC annotations include the encrypted key
 	if pvc.GetCsiEncryptedAnnotation() != "" {

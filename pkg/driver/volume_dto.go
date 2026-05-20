@@ -23,7 +23,6 @@ type CreateVolumeRequest struct {
 	EncryptedAlgorithm string
 	PvcNameTag         string // the name of the PVC on the PVC's Annotation
 	PvcNamespaceTag    string // the namespace of the PVC on the PVC's Annotation
-	PvNameTag          string // the name of the PV on the PVC's Annotation
 	IsPoc              bool   // whether the volume is a PoC volume
 	SnapshotID         string // the ID of the snapshot to create the volume from
 	CreateFrom         lsdkVolumeV2.CreateVolumeFrom
@@ -35,7 +34,6 @@ type CreateVolumeRequest struct {
 	NumberOfInodes  string
 	Ext4ClusterSize string
 	Ext4BigAlloc    bool
-	ReclaimPolicy   string
 	Zone            string
 
 	DriverOptions *DriverOptions
@@ -104,11 +102,6 @@ func (s *CreateVolumeRequest) WithPvcNamespaceTag(ppvcNamespaceTag string) *Crea
 	return s
 }
 
-func (s *CreateVolumeRequest) WithPvNameTag(ppvNameTag string) *CreateVolumeRequest {
-	s.PvNameTag = ppvNameTag
-	return s
-}
-
 func (s *CreateVolumeRequest) WithBlockSize(pblockSize string) *CreateVolumeRequest {
 	s.BlockSize = pblockSize
 	return s
@@ -164,11 +157,6 @@ func (s *CreateVolumeRequest) WithEncrypted(pencrypted string) *CreateVolumeRequ
 	return s
 }
 
-func (s *CreateVolumeRequest) WithReclaimPolicy(ppolicy string) *CreateVolumeRequest {
-	s.ReclaimPolicy = ppolicy
-	return s
-}
-
 func (s *CreateVolumeRequest) ToSdkCreateVolumeRequest() lsdkVolumeV2.ICreateBlockVolumeRequest {
 	opts := lsdkVolumeV2.NewCreateBlockVolumeRequest(s.VolumeName, s.VolumeTypeID, int64(s.VolumeSize)).
 		WithPoc(s.IsPoc).
@@ -188,28 +176,8 @@ func (s *CreateVolumeRequest) prepareTag(ptkl, ptvl int) []string {
 	var vts []string
 	if s.ClusterID != "" {
 		vts = append(vts, ljoat.Truncate(lscloud.VksClusterIdTagKey, ptkl), ljoat.Truncate(s.ClusterID, ptvl))
-		vts = append(vts, ljoat.Truncate(lscloud.VksOldClusterIdTagKey, ptkl), ljoat.Truncate(s.ClusterID, ptvl))
 	}
 
-	if s.PvcNameTag != "" {
-		vts = append(vts, ljoat.Truncate(lscloud.VksPvcNameTagKey, ptkl), ljoat.Truncate(s.PvcNameTag, ptvl))
-	}
-
-	if s.PvcNamespaceTag != "" {
-		vts = append(vts, ljoat.Truncate(lscloud.VksPvcNamespaceTagKey, ptkl), ljoat.Truncate(s.PvcNamespaceTag, ptvl))
-	}
-
-	if s.PvcNameTag != "" {
-		vts = append(vts, ljoat.Truncate(lscloud.VksPvNameTagKey, ptkl), ljoat.Truncate(s.PvNameTag, ptvl))
-	}
-
-	if s.SnapshotID != "" {
-		vts = append(vts, ljoat.Truncate(lscloud.VksSnapshotIdTagKey, ptkl), ljoat.Truncate(s.SnapshotID, ptvl))
-	}
-
-	if s.ReclaimPolicy != "" {
-		vts = append(vts, ljoat.Truncate(lscloud.VksReclaimPolicyTagKey, ptkl), ljoat.Truncate(s.ReclaimPolicy, ptvl))
-	}
 	vts = append(vts, ljoat.Truncate(lscloud.VksBillingProductTagKey, ptkl), "vks")
 
 	return vts
